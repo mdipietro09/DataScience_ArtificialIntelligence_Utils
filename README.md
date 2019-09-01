@@ -1,1 +1,1 @@
-# DataScience - Machine Learning
+# Data science utils functions in Python
