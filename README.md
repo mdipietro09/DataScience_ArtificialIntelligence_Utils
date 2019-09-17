@@ -1,1 +1,1 @@
-# Data science & Artifical Intelligence utils functions in Python
+# Data Science & Artifical Intelligence utils functions in Python
