@@ -14,7 +14,6 @@ import spacy
 import requests
 import json
 import difflib
-#import textdistance
 import collections
 from bs4 import BeautifulSoup
 import random
@@ -605,14 +604,14 @@ def fit_Word2Vec(lst_lst_corpus, min_count=20, size=100, window=20, sg=0, plot="
         print("--- training ---")
         model = gensim.models.word2vec.Word2Vec(lst_lst_corpus, size=size, window=window, min_count=min_count, workers=4, sg=sg)
         print("--- model fitted ---")
-        lst_vocabulary = list(model.wv.vocab.keys())
+        lst_vocabulary = list(model.vocab.keys())
         dtf_vocabulary = pd.DataFrame(lst_vocabulary)
         
         ## plot
         if plot == "2d":
             labels = []
             X = []
-            for word in model.wv.vocab:
+            for word in model.vocab:
                 X.append( model[word] )
                 labels.append( word )
             tsne_model = manifold.TSNE(perplexity=40, n_components=2, init='pca', n_iter=2500, random_state=23)
@@ -647,7 +646,22 @@ def fit_Word2Vec(lst_lst_corpus, min_count=20, size=100, window=20, sg=0, plot="
     except Exception as e:
         print("--- got error ---")
         print(e)
-
+   
+     
+        
+'''
+'''
+def io_Word2Vec(modelpath, modelfile="GoogleWord2Vec.bin.gz", model=None):
+    ## load
+    if model is None:
+        model = gensim.models.KeyedVectors.load_word2vec_format(modelpath+modelfile, binary=True)
+        print("--- model loaded ---")
+        return model
+    ## save
+    else:
+        model.save(modelpath+modelfile)
+        print("--- model saved ---")
+    
 
 
 '''
@@ -662,10 +676,10 @@ Prints the closest words to the input word according to Word2Vec model and plot 
 def predict_Word2Vec(model, str_word, top=20, plot="2d", figsize=(20,13)):
     try:
         ## predict (embedda)
-        word_vec = model.wv[str_word]
+        word_vec = model[str_word]
         
         ## get context
-        lst_context = model.wv.most_similar( str_word, topn=top )
+        lst_context = model.most_similar( str_word, topn=top )
         
         ## plot
         if plot == "2d":
@@ -713,7 +727,7 @@ def predict_Word2Vec(model, str_word, top=20, plot="2d", figsize=(20,13)):
         print("--- got error ---")
         print(e)
         print("maybe you are looking for ... ")
-        lst_match = [word for word in list(model.wv.vocab.keys())
+        lst_match = [word for word in list(model.vocab.keys())
                       if difflib.SequenceMatcher(isjunk=None, a=str_word, b=word).ratio()>0.7]
         print(lst_match)
 
@@ -754,8 +768,8 @@ def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
         else:
             return("--- pick one: model or corpus ---")
             
-        X = model[model.wv.vocab.keys()]
-        lst_vocabulary = list(model.wv.vocab.keys())
+        X = model[model.vocab.keys()]
+        lst_vocabulary = list(model.vocab.keys())
         kmeans_model = nltk.cluster.KMeansClusterer(k, distance=nltk.cluster.util.cosine_distance, repeats=50)
         assigned_clusters = kmeans_model.cluster(X, assign_clusters=True)
         dtf_cluster = pd.DataFrame({"word":word, "cluster":str(assigned_clusters[i])}  
@@ -827,7 +841,7 @@ Computes the similarity of two strings with textdistance.
 :parameter
     :param a: string
     :param b: string
-    :param algo: string - "cosine", "gestalt", "jaro"
+    :param algo: string - "cosine", "gestalt", "jaccard"
 :return
     similarity score
 '''
@@ -847,11 +861,11 @@ def strings_similarity(a, b, algo="cosine"):
     elif algo == "gestalt": 
         return difflib.SequenceMatcher(isjunk=None, a=a, b=b).ratio()
     
-    elif algo == "jaro":
-        return textdistance.jaro_winkler.normalized_similarity(a, b)
+    elif algo == "jaccard":
+        return 1 - nltk.jaccard_distance(set(a), set(b))
     
     else:
-        print('Choose one algo: "cosine", "gestalt", "jaro"')
+        print('Choose one algo: "cosine", "gestalt", "jaccard"')
     
 
 
@@ -860,7 +874,7 @@ Computes the similarity of two strings with textdistance.
 :parameter
     :param str_name: string - str to lookup
     :param lst_strings: list - lst with possible matches
-    :param algo: string - "cosine", "gestalt", "jaro"
+    :param algo: string - "cosine", "gestalt", "jaccard"
     :param threshold: num - similarity threshold to consider the match valid
     :param top: num or None - number of matches to return
 :return
@@ -892,7 +906,7 @@ Vlookup for similar strings.
 :parameter
     :param strings_array - array or lst
     :param lookup_array - array or lst
-    :param algo: string - "cosine", "gestalt", "jaro"
+    :param algo: string - "cosine", "gestalt", "jaccard"
     :param threshold: num - similarity threshold to consider the match valid
 :return
     dtf_matches - dataframe with matches
