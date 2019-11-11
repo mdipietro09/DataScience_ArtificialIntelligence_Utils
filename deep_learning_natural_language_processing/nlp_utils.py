@@ -799,8 +799,8 @@ Fits Latent Dirichlet Allocation with gensim.
 '''
 def fit_lda(lst_lst_corpus, n_topics=10, n_words=5, plot=True, figsize=(10,10)):
     ## train the lda
-    id2word = gensim.corpora.Dictionary(lst_lst_corpus) # map words with an id
-    corpus = [id2word.doc2bow(word) for word in lst_lst_corpus]  # create dictionary Word:Freq
+    id2word = gensim.corpora.Dictionary(lst_lst_corpus) #map words with an id
+    corpus = [id2word.doc2bow(word) for word in lst_lst_corpus]  #create dictionary Word:Freq
     print("--- training ---")
     lda_model = gensim.models.ldamodel.LdaModel(corpus=corpus, id2word=id2word, num_topics=n_topics, 
                                                 random_state=123, update_every=1, chunksize=100, 
@@ -911,15 +911,15 @@ Vlookup for similar strings.
 :return
     dtf_matches - dataframe with matches
 '''
-def vlookup(strings_array, lookup_array, algo="cosine", threshold=0.7):
+def vlookup(lst_left, lst_right, algo="cosine", threshold=0.7, top=1):
     try:
         dtf_matches = pd.DataFrame(columns=['stringa', 'match', algo+"_similarity"])
-        for string in strings_array:
-            dtf_match = match_strings(string, lookup_array, algo=algo, threshold=threshold, top=1)
-            print(string, " --", dtf_match.iloc[0,2], "--> ", dtf_match["match"].values[0])
+        for string in lst_left:
+            dtf_match = match_strings(string, lst_right, algo=algo, threshold=threshold, top=top)
+            for i in range(len(dtf_match)):
+                print(string, " --", dtf_match.iloc[i,2], "--> ", dtf_match["match"].values[i])
             dtf_matches = dtf_matches.append(dtf_match)
-        dtf_matches = dtf_matches.reset_index()
-        dtf_matches = dtf_matches.drop("index", axis=1)
+        dtf_matches = dtf_matches.reset_index(drop=True)
         return dtf_matches
 
     except Exception as e:

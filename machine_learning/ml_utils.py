@@ -511,7 +511,7 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
         X = dtf.drop([pk, y], axis=1).values
         Y = dtf[y].values
         if split is not None:
-            X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, random_state=123)
+            X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, random_state=123, shuffle=True)
             print("X_train shape:", X_train.shape, " | X_test shape:", X_test.shape)
             if task=="classification":
                 print("1s in y_train:", round(sum(Y_train)/Y_train.shape[0]), " | 1s in y_test:", round(sum(Y_test)/Y_test.shape[0]))
@@ -618,7 +618,7 @@ def fit_model(model, X_train, Y_train, X_test, Y_test, scalerY=None, task="class
         model.fit(X_train, Y_train)
         predicted_prob = model.predict_proba(X_test)[:,1]
         predicted = (predicted_prob > Y_threshold)
-        print( "accuracy =", model.score(X_test, Y_test) )
+        print( "accuracy =", metrics.accuracy_scor(Y_test, predicted) )
         print( "auc =", metrics.roc_auc_score(Y_test, predicted_prob) )
         print( "log_loss =", metrics.log_loss(Y_test, predicted_prob) )
         print( " " )
@@ -628,7 +628,7 @@ def fit_model(model, X_train, Y_train, X_test, Y_test, scalerY=None, task="class
         model.fit(X_train, Y_train)
         predicted = model.predict(X_test)
         predicted = scalerY.inverse_transform(predicted)
-        print("r2 =", model.score(X_test, Y_test) )
+        print("r2 =", metrics.r2_score(Y_test, predicted))
         print("explained variance =", metrics.explained_variance_score(Y_test, predicted))
         print("mean absolute error =", metrics.mean_absolute_error(Y_test, predicted))
         print("mean squared error =", metrics.mean_squared_error(Y_test, predicted))
