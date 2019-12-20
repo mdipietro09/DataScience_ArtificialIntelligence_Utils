@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy
+import statsmodels.formula.api as smf
+import statsmodels.api as sm
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster
 import itertools
 from lime import lime_tabular
@@ -13,6 +15,16 @@ from lime import lime_tabular
 ###############################################################################
 #                       DATA ANALYSIS                                         #
 ###############################################################################
+'''
+'''
+def utils_recognize_type(dtf, col, max_cat=20):
+    if (dtf[col].dtype == "O") | (dtf[col].nunique() < max_cat):
+        return "cat"
+    else:
+        return "num"
+
+
+
 '''
 Counts Nas for every column of a dataframe.
 :parameter
@@ -49,7 +61,7 @@ def check_Nas(dtf, plot="freq", top=20, fontsize=10):
         print("--- got error ---")
         print(e)
         
-        
+    
 
 '''
 Plots the frequency distribution of a dtf column.
@@ -59,30 +71,30 @@ Plots the frequency distribution of a dtf column.
     :param max_cat: num - max number of uniques to consider a numeric variable categorical
     :param top: num - plot setting
     :param show_perc: logic - plot setting
-    :param fontsize: num - plot setting
     :param bins: num - plot setting
     :param quantile_breaks: tuple - plot distribution between these quantiles (to exclude outilers)
+    :param box_logscale: logic
     :param figsize: tuple - plot settings
 '''
-def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=False, fontsize=10, bins=100, quantile_breaks=(0,10), figsize=(10,10)):
+def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile_breaks=(0,10), box_logscale=False, figsize=(20,10)):
     try:
-        ## categorical
-        if (dtf[x].dtype == "O") | (dtf[x].nunique() < max_cat):        
+        ## cat --> freq
+        if utils_recognize_type(dtf, x, max_cat) == "cat":        
             ax = dtf[x].value_counts().head(top).sort_values().plot(kind="barh", figsize=figsize)
             totals= []
             for i in ax.patches:
                 totals.append(i.get_width())
             if show_perc == False:
                 for i in ax.patches:
-                    ax.text(i.get_width()+.3, i.get_y()+.20, str(i.get_width()), fontsize=fontsize, color='black')
+                    ax.text(i.get_width()+.3, i.get_y()+.20, str(i.get_width()), fontsize=10, color='black')
             else:
                 total= sum(totals)
                 for i in ax.patches:
-                    ax.text(i.get_width()+.3, i.get_y()+.20, str(round((i.get_width()/total)*100, 2))+'%', fontsize=fontsize, color='black')
+                    ax.text(i.get_width()+.3, i.get_y()+.20, str(round((i.get_width()/total)*100, 2))+'%', fontsize=10, color='black')
             plt.suptitle(x, fontsize=20)
             plt.show()
             
-        ## numeric
+        ## num --> density
         else:
             fig, ax = plt.subplots(nrows=1, ncols=2,  sharex=False, sharey=False, figsize=figsize)
             fig.suptitle(x, fontsize=20)
@@ -92,11 +104,16 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=False, fontsize=10, bins
             breaks = np.quantile(variable, q=np.linspace(0, 1, 11))
             variable = variable[ (variable > breaks[quantile_breaks[0]]) & (variable < breaks[quantile_breaks[1]]) ]
             sns.distplot(variable, hist=True, kde=True, kde_kws={"shade": True}, ax=ax[0])
+            ax[0].grid(True)
             ### boxplot 
-            ax[1].title.set_text('outliers')
-            tmp_dtf = pd.DataFrame(dtf[x])
-            tmp_dtf[x] = np.log(tmp_dtf[x])
-            tmp_dtf.boxplot(column=x, ax=ax[1])
+            if box_logscale == True:
+                ax[1].title.set_text('outliers (log scale)')
+                tmp_dtf = pd.DataFrame(dtf[x])
+                tmp_dtf[x] = np.log(tmp_dtf[x])
+                tmp_dtf.boxplot(column=x, ax=ax[1])
+            else:
+                ax[1].title.set_text('outliers')
+                dtf.boxplot(column=x, ax=ax[1])
             plt.show()   
         
     except Exception as e:
@@ -111,62 +128,188 @@ Plots a bivariate analysis.
     :param dtf: dataframe - input data
     :param x: str - column
     :param y: str - column
-    :param analysis_type: str - "timeseries", "Nas", "distribution"
     :param max_cat: num - max number of uniques to consider a numeric variable categorical
 '''
-def bivariate_plot(dtf, x, y, analysis_type="distribution", max_cat=20):
-    
-    def utils_recognize_type(dtf, col, max_cat):
-        if (dtf[col].dtype == "O") | (dtf[col].nunique() < max_cat):
-            return "cat"
-        else:
-            return "num"
-    
+def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
     try:
-        if analysis_type == "distribution":
-            ## numeric vs numeric
-            if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
-                sns.jointplot(x=x, y=y, data=dtf, dropna=True, kind='scatter')
-            
-            ## numeric vs categorical 
-            elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "num"):
-                sns.catplot(x=x, y=y, data=dtf, kind="box")    
-            elif (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "cat"):
-                sns.catplot(x=y, y=x, data=dtf, kind="box")
+        ## num vs num --> scatter with density + stacked
+        if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
+            ### stacked
+            breaks = np.quantile(dtf[x], q=np.linspace(0, 1, 11))
+            groups = dtf.groupby([pd.cut(dtf[x], bins=breaks)])[y].agg(['mean','median','size'])
+            fig, ax = plt.subplots(figsize=figsize)
+            fig.suptitle(x+"   vs   "+y, fontsize=20)
+            groups[["mean", "median"]].plot(kind="line", ax=ax)
+            groups["size"].plot(kind="bar", ax=ax, rot=45, secondary_y=True, color="grey", alpha=0.3, grid=True)
+            ax.set(ylabel=y)
+            ax.right_ax.set_ylabel("Observazions in each bin")
+            plt.show()
+            ### joint plot
+            sns.jointplot(x=x, y=y, data=dtf, dropna=True, kind='reg', height=int((figsize[0]+figsize[1])/2) )
+            plt.show()
 
-            ## categorical vs categorical
-            elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "cat"):  
-                sns.catplot(x=x, hue=y, data=dtf, kind='count')
-        
-        ## timeserie
-        elif analysis_type == "timeserie":
-            sns.lineplot(x=x, y=y, data= dtf, linewidth=1)
-        
-        ## Nas
-        #elif analysis_type == "Nas":
-        
+        ## cat vs cat --> hist count + hist %
+        elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "cat"):  
+            fig, ax = plt.subplots(nrows=1, ncols=2,  sharex=False, sharey=False, figsize=figsize)
+            fig.suptitle(x+"   vs   "+y, fontsize=20)
+            ### count
+            ax[0].title.set_text('count')
+            order = dtf.groupby(x)[y].count().index.tolist()
+            sns.catplot(x=x, hue=y, data=dtf, kind='count', order=order, ax=ax[0])
+            ax[0].grid(True)
+            ### percentage
+            ax[1].title.set_text('percentage')
+            a = dtf.groupby(x)[y].count().reset_index()
+            a = a.rename(columns={y:"tot"})
+            b = dtf.groupby([x,y])[y].count()
+            b = b.rename(columns={y:0}).reset_index()
+            b = b.merge(a, how="left")
+            b["%"] = b[0] / b["tot"] *100
+            sns.barplot(x=x, y="%", hue=y, data=b, ax=ax[1])
+            ax[1].grid(True)
+            ### fix figure
+            plt.close(2)
+            plt.close(3)
+            plt.show()
+    
+        ## num vs cat --> density + stacked + boxplot 
         else:
-            print('choose one analysis type: "timeseries", "Nas", "distribution"')
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-
-
-'''
-Plots the correlation matrix with seaborn.
-:parameter
-    :param dtf: dataframe - input data
-    :param method: str - "pearson", "spearman" ...
-    :param annotation: logic - plot setting
-    :param figsize: tuple - plot setting
-'''
-def corrmatrix_plot(dtf, method="pearson", annotation=True, figsize=(10,10)):    
-    corr_matrix = dtf.corr(method= method)
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.heatmap(corr_matrix, annot=annotation, cmap="YlGnBu", ax=ax)
-    plt.title(method + " correlation")
+            if (utils_recognize_type(dtf, x, max_cat) == "cat"):
+                cat,num = x,y
+            else:
+                cat,num = y,x
+            fig, ax = plt.subplots(nrows=1, ncols=3,  sharex=False, sharey=False, figsize=figsize)
+            fig.suptitle(x+"   vs   "+y, fontsize=20)
+            ### distribution
+            ax[0].title.set_text('density')
+            for i in dtf[cat].unique():
+                sns.distplot(dtf[dtf[cat]==i][num], hist=False, label=i, ax=ax[0])
+            ax[0].grid(True)
+            ### stacked
+            ax[1].title.set_text('bins')
+            breaks = np.quantile(dtf[num], q=np.linspace(0, 1, 11))
+            tmp = dtf.groupby([cat, pd.cut(dtf[num], breaks, duplicates='drop')]).size().unstack().T
+            tmp["tot"] = tmp.sum(axis=1)
+            for col in tmp.drop("tot", axis=1).columns:
+                tmp[col] = tmp[col] / tmp["tot"]
+            tmp.drop("tot", axis=1).plot(kind='bar', stacked=True, ax=ax[1])
+            ax[1].grid(True)
+            ### boxplot   
+            ax[2].title.set_text('outliers')
+            sns.catplot(x=cat, y=num, data=dtf, kind="box", ax=ax[2])
+            ax[2].grid(True)
+            ### fix figure
+            plt.close(2)
+            plt.close(3)
+            plt.show()
         
+    except Exception as e:
+        print("--- got error...check Nas ---")
+        print(e)
+        
+
+
+'''
+'''
+def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(20,10)):
+    dtf_NA = dtf[[na_x, y]]
+    dtf_NA[na_x] = dtf[na_x].apply(lambda x: "Value" if not pd.isna(x) else "NA")
+    bivariate_plot(dtf_NA, x=na_x, y=y, max_cat=max_cat, figsize=figsize)
+
+
+
+'''
+'''
+def ts_analysis(dtf, x, y, max_cat=20, figsize=(20,10)):
+    if utils_recognize_type(dtf, y, max_cat) == "cat":
+        dtf_tmp = dtf.groupby(x)[y].sum()       
+    else:
+        dtf_tmp = dtf.groupby(x)[y].median()
+    ax = dtf_tmp.plot(title=y+" by "+x)
+    ax.grid(True)
+      
+
+  
+'''
+'''
+def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
+    if utils_recognize_type(dtf, y, max_cat) == "cat":
+        
+        ## cat vs cat --> contingency table
+        if (utils_recognize_type(dtf, x1, max_cat) == "cat") & (utils_recognize_type(dtf, x2, max_cat) == "cat"):
+            cont_table = pd.crosstab(index=dtf[x1], columns=dtf[x2], values=dtf[y], aggfunc="sum")
+            fig, ax = plt.subplots(figsize=figsize)
+            sns.heatmap(cont_table, annot=True, cmap="YlGnBu", ax=ax, linewidths=.5).set_title(x1+'  vs  '+x2)
+            #return cont_table
+    
+        ## num vs num --> scatter with hue
+        elif (utils_recognize_type(dtf, x1, max_cat) == "num") & (utils_recognize_type(dtf, x2, max_cat) == "num"):
+            sns.lmplot(x=x1, y=x2, data=dtf, hue=y, height=int((figsize[0]+figsize[1])/2) )
+        
+        ## num vs cat --> boxplot with hue
+        else:
+            if (utils_recognize_type(dtf, x1, max_cat) == "cat"):
+                cat,num = x1,x2
+            else:
+                cat,num = x2,x1
+            fig, ax = plt.subplots(figsize=figsize)
+            sns.boxplot(x=cat, y=num, hue=y, data=dtf, ax=ax).set_title(x1+'  vs  '+x2)
+            ax.grid(True)
+    
+    else:
+        ## all num --> 3D scatter plot
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure(figsize=figsize)
+        ax = fig.gca(projection='3d')
+        plot3d = ax.scatter(xs=dtf[x1], ys=dtf[x2], zs=dtf[y], c=dtf[y], cmap='inferno', linewidth=0.5)
+        fig.colorbar(plot3d, shrink=0.5, aspect=5, label=y)
+        ax.set(xlabel=x1, ylabel=x2, zlabel=y)
+        plt.show()
+
+
+    
+'''
+Computes correlation/dependancy and p-value (prob of happening something different than what observed in the sample)
+'''
+def test_corr(dtf, x, y, max_cat=20):
+    ## num vs num --> pearson
+    if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
+        coeff, p = scipy.stats.pearsonr(dtf[x], dtf[y])
+        coeff, p = round(coeff, 3), round(p, 3)
+        conclusion = "Significant" if p < 0.05 else "Non-Significant"
+        print("Pearson Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
+    
+    ## cat vs cat --> cramer (chiquadro)
+    elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "cat"):
+        cont_table = pd.crosstab(index=dtf[x], columns=dtf[y])
+        chi2_test = scipy.stats.chi2_contingency(cont_table)
+        chi2, p = chi2_test[0], chi2_test[1]
+        n = cont_table.sum().sum()
+        phi2 = chi2/n
+        r,k = cont_table.shape
+        phi2corr = max(0, phi2-((k-1)*(r-1))/(n-1))
+        rcorr = r-((r-1)**2)/(n-1)
+        kcorr = k-((k-1)**2)/(n-1)
+        coeff = np.sqrt(phi2corr/min((kcorr-1), (rcorr-1)))
+        coeff, p = round(coeff, 3), round(p, 3)
+        conclusion = "Significant" if p < 0.05 else "Non-Significant"
+        print("Cramer Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
+    
+    ## num vs cat --> 1way anova (f: the means of the groups are different)
+    else:
+        if (utils_recognize_type(dtf, x, max_cat) == "cat"):
+            cat,num = x,y
+        else:
+            cat,num = y,x
+        model = smf.ols(num+' ~ '+cat, data=dtf).fit()
+        table = sm.stats.anova_lm(model)
+        p = table["PR(>F)"][0]
+        coeff, p = None, round(p, 3)
+        conclusion = "Correlated" if p < 0.05 else "Non-Correlated"
+        print("Anova F: the variables are", conclusion, "(p-value: "+str(p)+")")
+        
+    return coeff, p
+     
 
 
 '''
@@ -190,14 +333,14 @@ def CheckAndSave(dtf, pk, save=False, path=None, dtf_name=None):
         else:
             print("Rows:", len(dtf.index), " != ", "Pk:", dtf[pk].nunique(), "--> SHIT")
             ERROR = dtf.groupby(pk).size().reset_index(name= "count").sort_values(by="count", ascending= False)
-            print("Prendo ad esempio: ", pk+"==", ERROR.iloc[0,0])
+            print("Example: ", pk+"==", ERROR.iloc[0,0])
             return dtf[ dtf[pk]==ERROR.iloc[0,0] ]
     
     except Exception as e:
         print("--- got error ---")
         print(e)
         
-        
+
 
 '''
 Moves columns into a dtf.
@@ -246,56 +389,36 @@ def add_dummies(dtf, x, dropx=False, dummy_na=False):
     except Exception as e:
         print("--- got error ---")
         print(e)
-
-
-
+        
+        
+        
 '''
-Rebalances a dataset.
+Computes the correlation matrix with seaborn.
 :parameter
-    :param dtf: dataframe - feature matrix dtf
-    :param y: str - name of the dependent variable 
-    :param balance: str or None - "up", "down"
-    :param replace: logic - resampling with replacement
-    :param size: num - 1 for same size of the other class, 0.5 for half of the other class
-:return
-    rebalanced dtf
+    :param dtf: dataframe - input data
+    :param method: str - "pearson", "spearman" ...
+    :param annotation: logic - plot setting
+    :param figsize: tuple - plot setting
 '''
-def rebalance(dtf, y, balance=None,  replace=True, size=1):
-    try:
-        ## check
-        check = dtf[y].value_counts().to_frame()
-        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
-        print(check)
-        print("tot:", check[y].sum())
-        major = check.index[0]
-        minor = check.index[1]
-        dtf_major = dtf[dtf[y]==major]
-        dtf_minor = dtf[dtf[y]==minor]
-        
-        ## up-sampling
-        if balance == "up":
-            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_major), 0)) )
-            dtf_balanced = pd.concat([dtf_major, dtf_minor])
-        ## down-sampling
-        elif balance == "down":
-            dtf_major = utils.resample(dtf_major, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_minor), 0)) )
-            dtf_balanced = pd.concat([dtf_major, dtf_minor])
+def corrmatrix_plot(dtf, method="pearson", annotation=True, figsize=(10,10)):    
+    ## divide cols
+    num_cols, cat_cols = [], []
+    for col in dtf.columns:
+        if utils_recognize_type(dtf, col) == "cat":
+            cat_cols.append(col)
         else:
-            print("select up or down resampling")
-            return dtf
-        
-        print("")
-        check = dtf_balanced[y].value_counts().to_frame()
-        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
-        print(check)
-        print("tot:", check[y].sum())
-        return dtf_balanced
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+            num_cols.append(col)
+    ## factorize
+    if len(cat_cols) > 0:
+        dtf_cat = dtf[cat_cols].apply(lambda x: pd.factorize(x)[0])
+        dtf_num = dtf[num_cols]
+        dtf = pd.concat([dtf_num, dtf_cat], axis=1)
+    ## corr matrix
+    corr_matrix = dtf.corr(method=method)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(corr_matrix, vmin=-1., vmax=1., annot=annotation, fmt='.2f', cmap="YlGnBu", ax=ax, cbar=True, linewidths=0.5)
+    plt.title(method + " correlation")
+    return corr_matrix
 
 
 
@@ -303,61 +426,40 @@ def rebalance(dtf, y, balance=None,  replace=True, size=1):
 Performs features selections: by correlation (keeping the lowest p-value) and by lasso.
 :prameter
     :param dtf: dataframe - feature matrix dtf
-    :param pk: str - name of the primary key
     :param y: str - name of the dependent variable
-    :param corr_threshold: num or None- threshold to considere features high correlated (if None skip the step)
-    :param lasso_alpha: num or None - Constant that multiplies the L1 term (if None skip the step)
+    :param top: num - number of top features
+    :param task: str - "classification" or "regression"
 :return
     dic with lists of features to keep.
 '''     
-def features_selection(dtf, pk, y, corr_threshold=0.7, lasso_alpha=0.5):
+def features_selection(dtf, y, top=10, task="classification", figsize=(20,10)):
     try:
-        ## correlation and p-value
-        if corr_threshold is not None:
-            ### compute
-            corr_matrix = dtf.drop([pk, y], axis=1).corr(method="spearman")
-            dtf_stats = pd.DataFrame(columns=['variable', 'p_value'])
-            for col in dtf.drop([pk, y], axis=1).columns.to_list():
-                slope, intercept, corr_value, p_value, std_err = scipy.stats.linregress(x=dtf[col].values, y=dtf[y].values)
-                dtf_stats = dtf_stats.append([{"variable":col, 'p_value':p_value}], ignore_index=False)     
-            ### selection
-            stats_selected_features = []
-            for col in corr_matrix.index.unique():
-                dtf_filtered = corr_matrix.drop(col, axis=0)[col].to_frame()
-                dtf_filtered = dtf_filtered[(dtf_filtered[col] >= corr_threshold) | (dtf_filtered[col] <= -corr_threshold)]
-                if len(dtf_filtered) > 0:
-                    for i in range(0, len(dtf_filtered)):
-                        varA = col
-                        varB = dtf_filtered.index[0]
-                        corrAB = dtf_filtered.iloc[i,0]
-                        pvalueA = dtf_stats[dtf_stats["variable"]==varA]["p_value"].values[0]
-                        pvalueB = dtf_stats[dtf_stats["variable"]==varB]["p_value"].values[0]
-                        if pvalueA < pvalueB:
-                            stats_selected_features.append(varA)
-                        else:
-                            stats_selected_features.append(varB)
-                else:
-                    next
-            stats_selected_features = list(set(stats_selected_features))
-            print("stats: features from", len(corr_matrix.columns.to_list()), "--> to", len(stats_selected_features))
-        else:
-            stats_selected_features = 0
-                        
-        ## lasso regression
-        if lasso_alpha is not None:
-            ### compute
-            dtf_X = dtf.drop([pk, y], axis=1)
-            lasso_selection = feature_selection.SelectFromModel( linear_model.Lasso(alpha=lasso_alpha, normalize=False, random_state=123) )
-            lasso_selection.fit(X=dtf_X, y=dtf[y])
-            ### selection
-            lasso_selected_features = dtf_X.columns[ (lasso_selection.estimator_.coef_ != 0).ravel().tolist() ]
-            lasso_selected_features = list(set(lasso_selected_features))
-            print("lasso: features from", len(dtf_X.columns.to_list()), "--> to", len(lasso_selected_features))
-        else:
-            lasso_selected_features = 0
+        dtf_X = dtf.drop(y, axis=1)
+        feature_names = dtf_X.columns
         
-        return { "stats":stats_selected_features, "lasso":lasso_selected_features, 
-                 "join":list(set(stats_selected_features).intersection(lasso_selected_features)) }
+        ## Anova
+        model = feature_selection.f_classif if task=="classification" else feature_selection.f_regression
+        selector = feature_selection.SelectKBest(score_func=model, k=top).fit(dtf_X.values, dtf[y].values)
+        anova_selected_features = feature_names[selector.get_support()]
+        
+        ## Lasso regularization
+        model = linear_model.LogisticRegression(C=1, penalty="l1", solver='liblinear') if task=="classification" else linear_model.Lasso(alpha=1.0, fit_intercept=True)
+        selector = feature_selection.SelectFromModel(estimator=model, max_features=top).fit(dtf_X.values, dtf[y].values)
+        lasso_selected_features = feature_names[selector.get_support()]
+        
+        ## plot
+        dtf_features = pd.DataFrame({"features":feature_names})
+        dtf_features["anova"] = dtf_features["features"].apply(lambda x: "anova" if x in anova_selected_features else "")
+        dtf_features["num1"] = dtf_features["features"].apply(lambda x: 1 if x in anova_selected_features else 0)
+        dtf_features["lasso"] = dtf_features["features"].apply(lambda x: "lasso" if x in lasso_selected_features else "")
+        dtf_features["num2"] = dtf_features["features"].apply(lambda x: 1 if x in lasso_selected_features else 0)
+        dtf_features["method"] = dtf_features[["anova","lasso"]].apply(lambda x: (x[0]+" "+x[1]).strip(), axis=1)
+        dtf_features["selection"] = dtf_features["num1"] + dtf_features["num2"]
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.barplot(y="features", x="selection", hue="method", data=dtf_features.sort_values("selection", ascending=False), ax=ax, dodge=False)
+               
+        join_selected_features = list(set(anova_selected_features).intersection(lasso_selected_features))
+        return {"anova":anova_selected_features, "lasso":lasso_selected_features, "join":join_selected_features}
     
     except Exception as e:
         print("--- got error ---")
@@ -436,13 +538,60 @@ def binomial_test(dtf, x, y, bins=10, figsize=(10,10)):
 
 
 
-###############################################################################
-#                   MODEL DESING & TESTING                                    #
-###############################################################################
+'''
+Rebalances a dataset.
+:parameter
+    :param dtf: dataframe - feature matrix dtf
+    :param y: str - name of the dependent variable 
+    :param balance: str or None - "up", "down"
+    :param replace: logic - resampling with replacement
+    :param size: num - 1 for same size of the other class, 0.5 for half of the other class
+:return
+    rebalanced dtf
+'''
+def rebalance(dtf, y, balance=None,  replace=True, size=1):
+    try:
+        ## check
+        check = dtf[y].value_counts().to_frame()
+        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
+        print(check)
+        print("tot:", check[y].sum())
+        major = check.index[0]
+        minor = check.index[1]
+        dtf_major = dtf[dtf[y]==major]
+        dtf_minor = dtf[dtf[y]==minor]
+        
+        ## up-sampling
+        if balance == "up":
+            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123,
+                                       n_samples=int(round(size*len(dtf_major), 0)) )
+            dtf_balanced = pd.concat([dtf_major, dtf_minor])
+        ## down-sampling
+        elif balance == "down":
+            dtf_major = utils.resample(dtf_major, replace=replace, random_state=123,
+                                       n_samples=int(round(size*len(dtf_minor), 0)) )
+            dtf_balanced = pd.concat([dtf_major, dtf_minor])
+        else:
+            print("select up or down resampling")
+            return dtf
+        
+        print("")
+        check = dtf_balanced[y].value_counts().to_frame()
+        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
+        print(check)
+        print("tot:", check[y].sum())
+        return dtf_balanced
+    
+    except Exception as e:
+        print("--- got error ---")
+        print(e)
+
+
+
 '''
 Computes all the required data preprocessing.
 :parameter
-    :param dtf: dataframe - feature matrix dtf
+    :param dtf: dataframe - feature matrix dtf
     :param pk: str - name of the primary key
     :param y: str - name of the dependent variable 
     :param processNas: str or None - "mean", "median", "most_frequent"
@@ -552,9 +701,12 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
     except Exception as e:
         print("--- got error ---")
         print(e)
-    
-    
 
+
+
+###############################################################################
+#                   MODEL DESIGN & TESTING                                    #
+###############################################################################
 '''
 Tunes the hyperparameters of a sklearn model.
 :parameter
@@ -567,29 +719,28 @@ Tunes the hyperparameters of a sklearn model.
 :return
     model with hyperparams tuned
 '''
-def tuning_model(model_base, param_dic, X_train, Y_train, scoring="roc_auc", searchtype="RandomSearch"):
+def tuning_model(model_base, param_dic, X_train, Y_train, scoring="roc_auc", searchtype="RandomSearch", n_iter=1000, cv=10):
     try:
         ## Search
-        print(searchtype.upper()+" :")
+        print(searchtype.upper())
         if searchtype == "RandomSearch":
-            random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=1000, scoring=scoring).fit(X_train, Y_train)
-            print("Best Parameters: ", random_search.best_params_)
-            print("Best Accuracy: ", random_search.best_score_)
+            random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, Y_train)
+            print("Best Model parameters:", random_search.best_params_)
+            print("Best Model mean "+scoring+":", random_search.best_score_)
             model = random_search.best_estimator_
             
         elif searchtype == "GridSearch":
             grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, Y_train)
-            print("Best Parameters: ", grid_search.best_params_)
-            print("Best Accuracy: ", grid_search.best_score_)
+            print("Best Model parameters:", grid_search.best_params_)
+            print("Best Model mean "+scoring+":", grid_search.best_score_)
             model = grid_search.best_estimator_
         
         ## K fold validation
         print("")
-        Kfold_accuracy_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=Y_train, cv=10)
-        Kfold_accuracy_model = model_selection.cross_val_score(estimator=model, X=X_train, y=Y_train, cv=10)
-        print("K-FOLD VALIDATION :")
-        print("accuracy mean = from", Kfold_accuracy_base.mean(), " ----> ", Kfold_accuracy_model.mean() )
-        print("accuracy variance = from", Kfold_accuracy_base.std(), " ----> ", Kfold_accuracy_model.std() )
+        Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=Y_train, cv=cv, scoring=scoring)
+        Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=Y_train, cv=cv, scoring=scoring)
+        print("K-FOLD VALIDATION")
+        print(scoring+" mean: from", Kfold_base.mean(), " ----> ", Kfold_model.mean() )
         return model
     
     except Exception as e:
@@ -597,6 +748,36 @@ def tuning_model(model_base, param_dic, X_train, Y_train, scoring="roc_auc", sea
         print(e)
         
         
+        
+'''
+'''
+def kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
+    cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
+    tprs, aucs = [], []
+    mean_fpr = np.linspace(0,1,100)
+    fig = plt.figure(figsize=figsize)
+    
+    i = 1
+    for train, test in cv.split(X_train, Y_train):
+        prediction = model.fit(X_train[train], Y_train[train]).predict_proba(X_train[test])
+        fpr, tpr, t = metrics.roc_curve(Y_train[test], prediction[:, 1])
+        tprs.append(scipy.interp(mean_fpr, fpr, tpr))
+        roc_auc = metrics.auc(fpr, tpr)
+        aucs.append(roc_auc)
+        plt.plot(fpr, tpr, lw=2, alpha=0.3, label='ROC fold %d (AUC = %0.2f)' % (i, roc_auc))
+        i = i+1
+        
+    plt.plot([0,1], [0,1], linestyle='--', lw=2, color='black')
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_auc = metrics.auc(mean_fpr, mean_tpr)
+    plt.plot(mean_fpr, mean_tpr, color='blue', label=r'Mean ROC (AUC = %0.2f )' % (mean_auc), lw=2, alpha=1)
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC')
+    plt.legend(loc="lower right")
+    plt.show()
+
+
         
 '''
 Fits a sklearn model.
@@ -618,24 +799,30 @@ def fit_model(model, X_train, Y_train, X_test, Y_test, scalerY=None, task="class
         model.fit(X_train, Y_train)
         predicted_prob = model.predict_proba(X_test)[:,1]
         predicted = (predicted_prob > Y_threshold)
-        print( "accuracy =", metrics.accuracy_scor(Y_test, predicted) )
-        print( "auc =", metrics.roc_auc_score(Y_test, predicted_prob) )
-        print( "log_loss =", metrics.log_loss(Y_test, predicted_prob) )
-        print( " " )
-        print( metrics.classification_report(Y_test, predicted, target_names=classes) )
+        ## Accuray e AUC
+        accuracy = metrics.accuracy_score(Y_test, predicted)
+        auc = metrics.roc_auc_score(Y_test, predicted_prob)
+        print("Accuracy (overall correct predictions):",  round(accuracy,3))
+        print("Auc:", round(auc,3))
+        ## Precision e Recall
+        recall = metrics.recall_score(Y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
+        precision = metrics.precision_score(Y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
+        print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
+        print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
+        print("Detail:")
+        print(metrics.classification_report(Y_test, predicted, target_names=classes))
+        return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
     
     elif task == "regression":
         model.fit(X_train, Y_train)
         predicted = model.predict(X_test)
-        predicted = scalerY.inverse_transform(predicted)
-        print("r2 =", metrics.r2_score(Y_test, predicted))
-        print("explained variance =", metrics.explained_variance_score(Y_test, predicted))
-        print("mean absolute error =", metrics.mean_absolute_error(Y_test, predicted))
-        print("mean squared error =", metrics.mean_squared_error(Y_test, predicted))
-        predicted_prob = 0
+        if scalerY is not None:
+            predicted = scalerY.inverse_transform(predicted)
+        print("R2:", metrics.r2_score(Y_test, predicted))
+        print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
+        print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
+        return {"model":model, "predicted":predicted}
         
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
-
 
 
 '''
@@ -647,27 +834,19 @@ Evaluates a model performance.
     :param task: str - "classification" or "regression"
     :param figsize: tuple - plot setting
 '''
-def evaluate_model(Y_test, predicted, predicted_prob, task="classification", figsize=(10,10)):
+def evaluate_model(Y_test, predicted, predicted_prob, task="classification", figsize=(20,10)):
     try:
         if task == "classification":
-            classes = ( str(np.unique(Y_test)[0]), str(np.unique(Y_test)[1]) )
+            classes = (np.unique(Y_test)[0], np.unique(Y_test)[1])
             
             ## confusion matrix
-            cm = metrics.confusion_matrix(Y_test, predicted)
-            plt.figure(figsize=figsize)
-            plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-            plt.title('Confusion matrix')
-            plt.colorbar()
-            tick_marks = np.arange(len(classes))
-            plt.xticks(tick_marks, classes, rotation=45)
-            plt.yticks(tick_marks, classes)
-            fmt = 'd'
-            thresh = cm.max() / 2.
-            for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-                plt.text(j, i, format(cm[i, j], fmt), horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
-            plt.tight_layout()
-            plt.ylabel('True label')
-            plt.xlabel('Predicted label')
+            cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
+            cm = pd.DataFrame(cm)
+            fig, ax = plt.subplots(figsize=figsize)
+            sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
+            ax.set(xlabel="Pred", ylabel="True")
+            plt.yticks(rotation=0)
+            plt.title("Confusion matrix")
             plt.show()
             
             ## roc
@@ -679,11 +858,22 @@ def evaluate_model(Y_test, predicted, predicted_prob, task="classification", fig
             plt.xlim([0.0, 1.0])
             plt.ylim([0.0, 1.05])
             plt.xlabel('False Positive Rate')
-            plt.ylabel('True Positive Rate')
+            plt.ylabel('True Positive Rate (Recall)')
             plt.title('Receiver operating characteristic')
             plt.legend(loc="lower right")
+            plt.grid(True)
             plt.show()
-        
+            
+            ## precision-recall curve
+            precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
+            plt.figure(figsize=figsize)
+            plt.plot(recall, precision)
+            plt.xlabel('Recall')
+            plt.ylabel('Precision')
+            plt.title('Precision-Recall curve')
+            plt.grid(True)
+            plt.show()
+            
         elif task == "regression":
             from statsmodels.graphics.api import abline_plot
             fig, ax = plt.subplots()
@@ -782,10 +972,10 @@ Uses lime to build an a explainer.
 '''
 def explainer(X_train, X_names, model, Y_train, X_test_instance, task="classification", top=10):
     if task=="classification":
-        expainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(Y_train), mode=task)
-        expainer = expainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
-        dtf_explainer = pd.DataFrame(expainer.as_list(), columns=['reason','effect'])
-        expainer.as_pyplot_figure()
+        explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(Y_train), mode=task)
+        explained = explainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
+        dtf_explainer = pd.DataFrame(explained.as_list(), columns=['reason','effect'])
+        explained.as_pyplot_figure()
     else:
         dtf_explainer = 0
     return dtf_explainer
@@ -858,7 +1048,7 @@ def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
         plt.title('The Elbow Method')
         plt.xlabel('Number of clusters')
         plt.ylabel('WCSS')
-        plt.show() 
+        plt.show()
     
     ## k-mean
     elif k is not None:
@@ -892,8 +1082,8 @@ Fits a keras 3-layer artificial neural network.
 :return
     model fitted and predictions
 '''
-def ann(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
-    from tensorflow.keras import models, layers, applications
+def ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
+    from tensorflow.keras import models, layers
     ## build ann
     ### initialize
     model = models.Sequential()
@@ -901,10 +1091,10 @@ def ann(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold
     n_neurons = int(round((n_features + 1)/2))
     ### layer 1
     model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(0.2))
+    model.add(layers.Dropout(rate=0.2))
     ### layer 2
     model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(0.2))
+    model.add(layers.Dropout(rate=0.2))
     ### layer output
     model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
     ### compile
@@ -931,3 +1121,45 @@ def ann(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold
     print( metrics.classification_report(Y_test, predicted, target_names=classes) )
     
     return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+'''
+def ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
+    from tensorflow.keras import models, layers
+    ## build ann
+    ### initialize
+    model = models.Sequential()
+    n_features = X_train.shape[1]
+    n_neurons = int(round((n_features + 1)/2))
+    ### layer 1
+    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer 2
+    model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer output
+    model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
+    ### compile
+    model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
+    
+    ## fit
+    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    plt.plot(training.history['loss'], label='loss')
+    plt.suptitle("Loss function during training", fontsize=20)
+    plt.ylabel("Loss")
+    plt.xlabel("epochs")
+    plt.show()
+    print(training.model.summary())
+    model = training.model
+    
+    ## predict
+    predicted = model.predict(X_test)
+    if scalerY is not None:
+        predicted = scalerY.inverse_transform(predicted)
+    print("R2:", metrics.r2_score(Y_test, predicted))
+    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
+    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
+    
+    return {"model":model, "predicted":predicted}

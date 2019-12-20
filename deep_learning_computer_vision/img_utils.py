@@ -141,15 +141,15 @@ def fit_cnn(X, y, batch_size=32, epochs=100, figsize=(20,13)):
     ## cnn
     ### layer 1 conv 5x5 (32 neurons) + pool 2x2
     model = models.Sequential()
-    model.add( layers.Conv2D(input_shape=X.shape[1:], kernel_size=(5,5), filters=32, activation='relu') )
-    model.add( layers.MaxPooling2D(pool_size=(2,2)) )
+    model.add( layers.Conv2D(input_shape=X.shape[1:], kernel_size=(5,5), filters=32, strides=(1,1), padding="valid", activation='relu') )
+    model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
     ### layer 2 conv 3x3 (64 neurons) + pool 2x2
-    model.add( layers.Conv2D(kernel_size=(3,3), filters=64, activation='relu') )
-    model.add( layers.MaxPooling2D(pool_size=(2,2)) )
+    model.add( layers.Conv2D(kernel_size=(3,3), filters=64, strides=(1,1), padding="valid", activation='relu') )
+    model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
     ### layer 3 fully connected (128 neuroni)
     model.add( layers.Flatten() )
     model.add( layers.Dense(units=128, activation="relu") )
-    model.add( layers.Dropout(rate=0.5) )
+    model.add( layers.Dropout(rate=0.2) )
     ### layer output (n_classes neurons)
     if len(y.shape) == 1:
         print("y binary --> using 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")

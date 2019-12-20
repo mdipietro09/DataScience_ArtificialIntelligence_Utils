@@ -782,7 +782,7 @@ def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
         print("--- got error ---")
         print(e)
         
-        
+ 
 
 ###############################################################################
 #                  TOPIC MODELING                                             #
