@@ -7,8 +7,8 @@ import scipy
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster
-import itertools
 from lime import lime_tabular
+from tensorflow.keras import models, layers
 
 
 
@@ -33,7 +33,7 @@ Counts Nas for every column of a dataframe.
     :param top: num - plot setting
     :param fontsize: num - plot setting
 '''
-def check_Nas(dtf, plot="freq", top=20, fontsize=10):
+def check_Nas(dtf, plot="freq", top=20, fontsize=10, figsize=(20,10)):
     try:
         ## print
         len_dtf = len(dtf)
@@ -55,7 +55,8 @@ def check_Nas(dtf, plot="freq", top=20, fontsize=10):
             plt.show()
         
         elif plot == "map":
-            sns.heatmap(dtf.isnull(), cbar=False).set_title('Missings Map')
+            fig, ax = plt.subplots(figsize=figsize)
+            sns.heatmap(dtf.isnull(), cbar=False, ax=ax).set_title('Missings Map')
         
     except Exception as e:
         print("--- got error ---")
@@ -239,7 +240,7 @@ def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
         if (utils_recognize_type(dtf, x1, max_cat) == "cat") & (utils_recognize_type(dtf, x2, max_cat) == "cat"):
             cont_table = pd.crosstab(index=dtf[x1], columns=dtf[x2], values=dtf[y], aggfunc="sum")
             fig, ax = plt.subplots(figsize=figsize)
-            sns.heatmap(cont_table, annot=True, cmap="YlGnBu", ax=ax, linewidths=.5).set_title(x1+'  vs  '+x2)
+            sns.heatmap(cont_table, annot=True, cmap="YlGnBu", ax=ax, linewidths=.5).set_title(x1+'  vs  '+x2+'  (filter: '+y+')')
             #return cont_table
     
         ## num vs num --> scatter with hue
@@ -253,7 +254,7 @@ def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
             else:
                 cat,num = x2,x1
             fig, ax = plt.subplots(figsize=figsize)
-            sns.boxplot(x=cat, y=num, hue=y, data=dtf, ax=ax).set_title(x1+'  vs  '+x2)
+            sns.boxplot(x=cat, y=num, hue=y, data=dtf, ax=ax).set_title(x1+'  vs  '+x2+'  (filter: '+y+')')
             ax.grid(True)
     
     else:
@@ -1083,7 +1084,6 @@ Fits a keras 3-layer artificial neural network.
     model fitted and predictions
 '''
 def ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
-    from tensorflow.keras import models, layers
     ## build ann
     ### initialize
     model = models.Sequential()
@@ -1127,7 +1127,6 @@ def ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_t
 '''
 '''
 def ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
-    from tensorflow.keras import models, layers
     ## build ann
     ### initialize
     model = models.Sequential()

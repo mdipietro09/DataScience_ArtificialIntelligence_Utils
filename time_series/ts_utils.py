@@ -119,8 +119,8 @@ def test_2ts_casuality(ts1, ts2, maxlag=30, figsize=(20,13)):
 
 '''
 '''
-def decompose_ts(ts, freq=250, figsize=(20,13)):
-    decomposition = smt.seasonal_decompose(ts, freq=freq)
+def decompose_ts(ts, s=250, figsize=(20,13)):
+    decomposition = smt.seasonal_decompose(ts, freq=s)
     trend = decomposition.trend
     seasonal = decomposition.seasonal
     residual = decomposition.resid   
@@ -206,9 +206,9 @@ def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"
             ### residuals distribution
             dtf[["fitting_error","prediction_error"]].plot(ax=ax[1,1], color=["green","red"], kind='kde', title="Residuals Distribution", grid=True)
             plt.show()
-            print("error_mean:",np.round(error_mean), "error_std:",np.round(error_std),
-              "mae:",np.round(mae), "mape:",np.round(mape*100), "mse:",np.round(mse), 
-              "rmse:",np.round(rmse))
+            print("error_mean:",np.round(error_mean), " | error_std:",np.round(error_std),
+              " | mae:",np.round(mae), " | mape:",np.round(mape*100), " | mse:",np.round(mse), 
+              " | rmse:",np.round(rmse))
         
         return dtf
     
