@@ -10,4 +10,4 @@ gensim==3.8.1
 wordcloud==1.6.0
 langdetect==1.0.7
 keras==2.3.1 
-tensorflow==1.13.2
+tensorflow==1.15.0
