@@ -6,7 +6,7 @@ import seaborn as sns
 import scipy
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
-from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster
+from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble, linear_model
 from lime import lime_tabular
 from tensorflow.keras import models, layers
 
@@ -781,7 +781,46 @@ def kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
 
         
 '''
-Fits a sklearn model.
+Fits a sklearn classification model.
+:parameter
+    :param model: model object - model to fit (before fitting)
+    :param X_train: array
+    :param Y_train: array
+    :param X_test: array
+    :param Y_test: array
+    :param Y_threshold: num - predictions > threshold are 1, otherwise 0 (only for classification)
+:return
+    model fitted and predictions
+'''
+def fit_classif_model(model, X_train, Y_train, X_test, Y_test, Y_threshold=0.5):
+    ## model
+    model = ensemble.GradientBoostingClassifier() if model is None else model
+    
+    ## train/test
+    classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
+    model.fit(X_train, Y_train)
+    predicted_prob = model.predict_proba(X_test)[:,1]
+    predicted = (predicted_prob > Y_threshold)
+    
+    ## Accuray e AUC
+    accuracy = metrics.accuracy_score(Y_test, predicted)
+    auc = metrics.roc_auc_score(Y_test, predicted_prob)
+    print("Accuracy (overall correct predictions):",  round(accuracy,3))
+    print("Auc:", round(auc,3))
+    
+    ## Precision e Recall
+    recall = metrics.recall_score(Y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
+    precision = metrics.precision_score(Y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
+    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
+    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
+    print("Detail:")
+    print(metrics.classification_report(Y_test, predicted, target_names=classes))
+    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+Fits a sklearn regression model.
 :parameter
     :param model: model object - model to fit (before fitting)
     :param X_train: array
@@ -789,40 +828,24 @@ Fits a sklearn model.
     :param X_test: array
     :param Y_test: array
     :param scalerY: scaler object (only for regression)
-    :param task: str - "classification" or "regression"
-    :param Y_threshold: num - predictions > threshold are 1, otherwise 0 (only for classification)
 :return
     model fitted and predictions
 '''
-def fit_model(model, X_train, Y_train, X_test, Y_test, scalerY=None, task="classification", Y_threshold=0.5):
-    if task == "classification":
-        classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
-        model.fit(X_train, Y_train)
-        predicted_prob = model.predict_proba(X_test)[:,1]
-        predicted = (predicted_prob > Y_threshold)
-        ## Accuray e AUC
-        accuracy = metrics.accuracy_score(Y_test, predicted)
-        auc = metrics.roc_auc_score(Y_test, predicted_prob)
-        print("Accuracy (overall correct predictions):",  round(accuracy,3))
-        print("Auc:", round(auc,3))
-        ## Precision e Recall
-        recall = metrics.recall_score(Y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
-        precision = metrics.precision_score(Y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
-        print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
-        print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
-        print("Detail:")
-        print(metrics.classification_report(Y_test, predicted, target_names=classes))
-        return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+def fit_regr_model(model, X_train, Y_train, X_test, Y_test, scalerY=None):  
+    ## model
+    model = linear_model.LinearRegression() if model is None else model
     
-    elif task == "regression":
-        model.fit(X_train, Y_train)
-        predicted = model.predict(X_test)
-        if scalerY is not None:
-            predicted = scalerY.inverse_transform(predicted)
-        print("R2:", metrics.r2_score(Y_test, predicted))
-        print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
-        print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
-        return {"model":model, "predicted":predicted}
+    ## train/test
+    model.fit(X_train, Y_train)
+    predicted = model.predict(X_test)
+    if scalerY is not None:
+        predicted = scalerY.inverse_transform(predicted)
+    
+    ## kpi
+    print("R2:", metrics.r2_score(Y_test, predicted))
+    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
+    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
+    return {"model":model, "predicted":predicted}
         
 
 
@@ -842,7 +865,6 @@ def evaluate_model(Y_test, predicted, predicted_prob, task="classification", fig
             
             ## confusion matrix
             cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
-            cm = pd.DataFrame(cm)
             fig, ax = plt.subplots(figsize=figsize)
             sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
             ax.set(xlabel="Pred", ylabel="True")
@@ -868,7 +890,7 @@ def evaluate_model(Y_test, predicted, predicted_prob, task="classification", fig
             ## precision-recall curve
             precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
             plt.figure(figsize=figsize)
-            plt.plot(recall, precision)
+            plt.plot(recall, precision, lw=3)
             plt.xlabel('Recall')
             plt.ylabel('Precision')
             plt.title('Precision-Recall curve')
@@ -1083,7 +1105,7 @@ Fits a keras 3-layer artificial neural network.
 :return
     model fitted and predictions
 '''
-def ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
+def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
     ## build ann
     ### initialize
     model = models.Sequential()
@@ -1126,7 +1148,7 @@ def ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_t
 
 '''
 '''
-def ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
+def fit_ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
     ## build ann
     ### initialize
     model = models.Sequential()

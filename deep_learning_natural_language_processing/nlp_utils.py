@@ -4,18 +4,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import re
+import langdetect 
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
-from sklearn import feature_extraction, metrics, manifold
+from sklearn import feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline
+from tensorflow.keras import models, layers, preprocessing
 import wordcloud
 import gensim
 import spacy
-import requests
-import json
 import difflib
 import collections
-from bs4 import BeautifulSoup
 import random
 
 
@@ -24,27 +23,22 @@ import random
 #                  TEXT ANALYSIS                                              #
 ###############################################################################
 '''
-Counts the elements in a list.
-:parameter
-    :param lst: list
-    :param top: num - number of top elements to return
-:return
-    lst_top - list with top elements
 '''
-def lst_count(lst, top=None):
-    try:
-        dic_counter = collections.Counter()
-        for x in lst:
-            dic_counter[x] += 1
-        dic_counter = collections.OrderedDict(sorted(dic_counter.items(), key=lambda x: x[1], reverse=True))
-        lst_top = [ {key:value} for key,value in dic_counter.items() ]
-        if top is not None:
-            lst_top = lst_top[:top]
-        return lst_top
+def utils_plot_distributions(dtf, x, y, bins=None, figsize=(10,5)):
+    bins = dtf[x].nunique() if bins is None else bins
+    for i in dtf[y].unique():
+        dtf[dtf[y]==i][x].hist(alpha=0.8, figsize=figsize, bins=bins)
+    plt.legend(dtf[y].unique())
+    plt.show()
 
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+
+
+'''
+'''
+def add_detect_lang(dtf, column):
+    dtf[column+'_lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")    
+    dtf[[column+'_lang']].describe().T
+    return dtf
 
 
 
@@ -54,20 +48,13 @@ Computes the count of words and the count of characters.
     :param dtf: dataframe - dtf with a text column
     :param column: string - name of column containing text
 :return
-    dtf: input dataframe with two new columns
+    dtf: input dataframe with 2 new columns
 '''
-def text_count(dtf, column):
-    try:
-        dtf[column+'_word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
-        dtf[column+'_char_count'] = dtf[column].str.len()
-        print("--- ok done ---")
-        print("min:" + str(round(dtf[column+'_word_count'].min(), 2)) + " median:" + str(round(dtf[column+'_word_count'].median(), 2)) +
-              " mean:" + str(round(dtf[column+'_word_count'].mean(), 2)) + " max:" + str(round(dtf[column+'_word_count'].max(), 2)))
-        return dtf
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+def add_text_count(dtf, column):
+    dtf[column+'_word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
+    dtf[column+'_text_length'] = dtf[column].str.len()
+    dtf[[column+'_word_count',column+'_text_length']].describe().T
+    return dtf
 
 
 
@@ -82,50 +69,89 @@ Computes the words frequencies.
     dtf_count: dtf with word frequency
 '''
 def words_freq(dtf, column, top=30, figsize=(10,10)):
-    try:
-        ## produce dtf
-        huge_str = dtf[column].str.cat(sep=" ")
-        lst_tokens = nltk.tokenize.word_tokenize(huge_str)
-        dic_words_freq = nltk.FreqDist(lst_tokens)
-        dtf_count = pd.DataFrame(dic_words_freq.most_common(), columns=["Word", "Freq"])
-
-        ## plot
-        dtf_count.set_index("Word").iloc[:top, :].sort_values(by="Freq").plot(kind="barh", title="Most frequent words", figsize=figsize)
-        plt.show()
-        print("--- ok done ---")
-        return dtf_count
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+    huge_str = dtf[column].str.cat(sep=" ")
+    lst_tokens = nltk.tokenize.word_tokenize(huge_str)
+    dic_words_freq = nltk.FreqDist(lst_tokens)
+    dtf_count = pd.DataFrame(dic_words_freq.most_common(), columns=["Word", "Freq"])
+    dtf_count.set_index("Word").iloc[:top, :].sort_values(by="Freq").plot(kind="barh", title="Most frequent words", figsize=figsize)
+    plt.show()
+    return dtf_count
 
 
 
 '''
-Adds a column of clean text.
+Creates a list of stopwords.
+:parameter
+    :param lst_langs: list - ["english", "italian"]
+    :param lst_new_words: list - list of new stop words to add
+:return
+    stop_words: list of stop words
+'''      
+def create_stopwords(lst_langs=["english"], lst_new_words=[]):
+    stop_words = set()
+    for lang in lst_langs:
+        words_nltk = set(nltk.corpus.stopwords.words(lang))
+        stop_words = stop_words.union(words_nltk)
+    stop_words = stop_words.union(lst_new_words)
+    return set(stop_words)
+        
+
+
+'''
+Preprocess a string.
+:parameter
+    :param text: string - name of column containing text
+    :param lst_regex: list - list of regex to remove
+    :param lst_stopwords: list - list of stopwords to remove
+    :param flg_stemm: bool - whether stemming is to be applied
+    :param flg_lemm: bool - whether lemmitisation is to be applied
+:return
+    cleaned text
+'''
+def utils_preprocess_text(text, lst_regex=None, flg_stemm=False, flg_lemm=True, lst_stopwords=None):
+    ## regex
+    if lst_regex is not None: 
+        for regex in lst_regex:
+            text = re.sub(regex, '', text)
+    
+    ## clean (convert to lowercase and remove punctuations and characters and then strip)
+    text = re.sub(r'[^\w\s]', '', str(text).lower().strip())
+            
+    ## Tokenize (convert from string to list)
+    lst_text = text.split()
+                
+    ## Stemming (remove -ing, -ly, ...)
+    if flg_stemm == True:
+        ps = nltk.stem.porter.PorterStemmer()
+        lst_text = [ps.stem(word) for word in lst_text]
+                
+    ## Lemmatisation (convert the word into root word)
+    if flg_lemm == True:
+        lem = nltk.stem.wordnet.WordNetLemmatizer()
+        lst_text = [lem.lemmatize(word) for word in lst_text]
+            
+    ## remove Stopwords
+    if lst_stopwords is not None:
+        lst_text = [word for word in lst_text if word not in lst_stopwords]
+            
+    ## back to string from list
+    text = " ".join(lst_text)
+    return text
+
+
+
+'''
+Adds a column of preprocessed text.
 :parameter
     :param dtf: dataframe - dtf with a text column
     :param column: string - name of column containing text
-    :param lst_regex: list - list of regex
 :return
     dtf: input dataframe with two new columns
 '''
-def clean_text_column(dtf, column, lst_regex=None):
-    try:
-        dtf[column+"_clean"] = dtf[column].apply(lambda x: str(x).lower()) ## lower
-
-        if lst_regex is not None: ## remove regex
-            for regex in lst_regex:
-                dtf[column+"_clean"] = dtf[column+"_clean"].apply(lambda x: re.sub(regex, '', x))
-
-        dtf[column+"_clean"] = dtf[column+"_clean"].apply(lambda x: re.sub(r'[^\w\s]', '', x)) ## remove punctuations and special characters
-        dtf[column+"_clean"] = dtf[column+"_clean"].apply(lambda x: x.strip()) ## strip
-        print("--- ok done ---")
-        return dtf
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+def add_preprocessed_text(dtf, column, lst_regex=None, flg_stemm=False, flg_lemm=True, lst_stopwords=None):
+    dtf = dtf[ pd.notnull(dtf[column]) ]
+    dtf[column+"_clean"] = dtf[column].apply(lambda x: utils_preprocess_text(x, lst_regex, flg_stemm, flg_lemm, lst_stopwords))
+    return dtf
 
 
 
@@ -142,20 +168,13 @@ Computes the sentiment using Textblob.
     dtf: input dataframe with new sentiment column
 '''
 def add_sentiment(dtf, column, algo="nltk"):
-    try:
-        if algo=="nltk":
-            nltk_sentim = SentimentIntensityAnalyzer()
-            dtf[column+"_sentiment"] = dtf[column].apply(lambda x: nltk_sentim.polarity_scores(x)["compound"])
-        elif algo=="textblob":
-            dtf[column+"_sentiment"] = dtf[column].apply(lambda x: TextBlob(x).sentiment.polarity)
-        print("--- ok done ---")
-        print("min:" + str(round(dtf[column+"_sentiment"].min(), 2)) + " median:" + str(round(dtf[column+"_sentiment"].median(), 2)) +
-              " mean:" + str(round(dtf[column+"_sentiment"].mean(), 2)) + " max:" + str(round(dtf[column+"_sentiment"].max(), 2)))
-        return dtf
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+    if algo=="nltk":
+        nltk_sentim = SentimentIntensityAnalyzer()
+        dtf[column+"_sentiment"] = dtf[column].apply(lambda x: nltk_sentim.polarity_scores(x)["compound"])
+    elif algo=="textblob":
+        dtf[column+"_sentiment"] = dtf[column].apply(lambda x: TextBlob(x).sentiment.polarity)
+    dtf[[column+'_sentiment']].describe().T
+    return dtf
 
 
 
@@ -180,11 +199,31 @@ def pivot_sentiment(dtf, index, columns, aggfunc="sum"):
         print("--- got error ---")
         print(e)
         
-        
 
+        
 ###############################################################################
 #                            NER                                              #
 ###############################################################################
+'''
+Counts the elements in a list.
+:parameter
+    :param lst: list
+    :param top: num - number of top elements to return
+:return
+    lst_top - list with top elements
+'''
+def utils_lst_count(lst, top=None):
+    dic_counter = collections.Counter()
+    for x in lst:
+        dic_counter[x] += 1
+    dic_counter = collections.OrderedDict(sorted(dic_counter.items(), key=lambda x: x[1], reverse=True))
+    lst_top = [ {key:value} for key,value in dic_counter.items() ]
+    if top is not None:
+        lst_top = lst_top[:top]
+    return lst_top
+
+
+
 '''
 Applies the spacy NER model.
 :parameter
@@ -197,7 +236,7 @@ Applies the spacy NER model.
 :return
     {"dtf":dtf, "dtf_tags":dtf_tags}
 '''
-def ner_spacy(dtf, column, model="en_core_web_lg", tag_type="all", top=20, figsize=(10,10)):
+def add_ner_spacy(dtf, column, model="en_core_web_lg", tag_type="all", top=20, figsize=(10,10)):
     try:
         ## load model
         ner_model = spacy.load(model)
@@ -209,7 +248,7 @@ def ner_spacy(dtf, column, model="en_core_web_lg", tag_type="all", top=20, figsi
         else:
             #dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type])) )
             dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type] )
-        dtf["tags"] = dtf["tags"].apply(lambda x: lst_count(x, top=None))
+        dtf["tags"] = dtf["tags"].apply(lambda x: utils_lst_count(x, top=None))
         print("--- added tags column ---")
 
         ## compute overall frequency
@@ -240,15 +279,10 @@ Display the spacy NER model.
     :param title: str or None
 '''
 def ner_displacy(txt, model="en_core_web_lg", lst_tags=None, title=None):
-    try:
-        ner_model = spacy.load(model)
-        doc = ner_model(txt)
-        doc.user_data["title"] = title
-        spacy.displacy.serve( doc, style="ent", options={"ents":lst_tags} )
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+    ner_model = spacy.load(model)
+    doc = ner_model(txt)
+    doc.user_data["title"] = title
+    spacy.displacy.serve( doc, style="ent", options={"ents":lst_tags} )
         
         
         
@@ -316,152 +350,58 @@ def retrain_spacy(train_data, output_dir, model="blank", n_iter=100):
 
     except Exception as e:
         print("--- got error ---")
-        print(e)    
+        print(e)        
         
-        
-
-'''
-Applies the microsoft NER model.
-:parameter
-    :param lst_txt: list - text to tag
-    :param api_key: string - microsoft api key
-:return
-    lst_tags - list of dics with name, tag, wikipedia, industry
-'''
-def ner_msft(lst_txt, api_key):
-    try:
-        ## prepare the json to post
-        lst_dics_txt = []
-        i = 1
-        for txt in lst_txt:
-            lst_dics_txt.append({"id":i, "text":txt})
-            i = i +1
-
-        ## post requests
-        url = "https://westcentralus.api.cognitive.microsoft.com/text/analytics/v2.0/entities"
-        dic_headers = {"Ocp-Apim-Subscription-Key": api_key}
-        json_txt = {'documents': lst_dics_txt}
-        res = requests.post(url, headers=dic_headers, json=json_txt)
-        if res.status_code != 200:
-            print(res.status_code)
-            next
-        else:
-            lst_res = json.loads(res.content)["documents"]
-            print(str(res.status_code) + ", " + str(len(lst_dics_txt)) + " strings tagged")
-
-            ## put tags into new list
-            lst_tags = []
-            for dic in lst_res:
-                if len(dic["entities"]) != 0:
-                    word = dic["entities"][0]["matches"][0]["text"]
-                    tag = dic["entities"][0]["name"]
-                    wikipedia_url = dic["entities"][0]["wikipediaUrl"]
-
-                    ######## Parse Wikipedia ##########
-                    if len(wikipedia_url) != 0:
-                        print(word+" - "+wikipedia_url)
-                        res_wiki = requests.get(wikipedia_url)
-                        soup = BeautifulSoup(res_wiki.content, "html.parser")
-                        table_wiki = soup.find("table", {"class":"infobox vcard"})
-                        industry = ""
-                        if table_wiki is not None:
-                            rows = table_wiki.find_all("tr")
-                            for row in rows:
-                                if "Industry" in str(row.find("th")):
-                                    industry = row.text
-                                    industry = industry.replace("Industry","")
-                                    print(word+" - "+str(industry))
-                    ###################################
-
-                    dic_tag = {word: (tag, industry, wikipedia_url)}
-                    lst_tags.append(dic_tag)
-                else:
-                    pass
-            return lst_tags
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-
+           
 
 ###############################################################################
-#                           BOW (ML)                                          #
+#                     BAG OF WORDS (VECTORIZER)                               #
 ###############################################################################
 '''
-Creates a list of stopwords.
-:parameter
-    :param lst_langs: list - ["english", "italian"]
-    :param lst_new_words: list - list of new stop words to add
-:return
-    stop_words: list of stop words
-'''      
-def create_stopwords(lst_langs=["english"], lst_new_words=[]):
-    stop_words = set()
-    for lang in lst_langs:
-        words_nltk = set(nltk.corpus.stopwords.words(lang))
-        stop_words = stop_words.union(words_nltk)
-    stop_words = stop_words.union(lst_new_words)
-    return set(stop_words)
-        
-        
-
 '''
-Creates a pre-processed corpus list from a dtf.
-:parameter
-    :param dtf: dataframe - dtf with a text column
-    :param column: string - name of column containing text
-    :param stop_words: list - list of stopwords to remove
-    :param flg_stemm: bool - whether stemming is to be applied
-    :param flg_lemm: bool - whether lemmitisation is to be applied
-:return
-    lst_corpus: list of documents
-'''
-def text_preprocessing_ListOfDocs(dtf, column, stop_words, flg_stemm=True, flg_lemm=False):
-    try:
-        ## remove null
-        dtf = dtf[ pd.notnull(dtf[column]) ]
-        
-        ## create list for corpus
-        lst_corpus = []
-        for i in dtf.index:
-            
-            text = dtf[column][i]
-            
-            ## clean (convert to lowercase and remove punctuations and characters and then strip)
-            text = re.sub(r'[^\w\s]', '', str(text).lower().strip())
-            
-            ## Tokenize (convert from string to list)
-            lst_text = text.split()
-                
-            ## Stemming (remove -ing, -ly, ...)
-            if flg_stemm == True:
-                ps = nltk.stem.porter.PorterStemmer()
-                lst_text = [ps.stem(word) for word in lst_text]
-                
-            ## Lemmatisation (convert the word into root word)
-            if flg_lemm == True:
-                lem = nltk.stem.wordnet.WordNetLemmatizer()
-                lst_text = [lem.lemmatize(word) for word in lst_text]
-            
-            ## remove Stopwords
-            lst_text = [word for word in lst_text if word not in stop_words]
-            
-            ## riporto a stringa e append to corpus
-            text = " ".join(lst_text)
-            lst_corpus.append(text)
-        
-        print("--- ok done ---")
-        return lst_corpus
-        
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+def bow_build_vocabolary(corpus, vectorizer=None):
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
+    vectorizer.fit(corpus)
+    dic_vocabolary = {word:idx for idx, word in enumerate(vectorizer.get_feature_names())}
+    return dic_vocabolary
 
 
 
 '''
-Vectorizes the corpus (tfidf), fits the Bag of words model, plots the most frequent words, plots a wordcloud.
+'''
+def words_correlation(dtf, x, y, max_ngrams=2, top=2):
+    tfidf = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,max_ngrams))
+    X = tfidf.fit_transform(dtf[x])
+    dic_cat = {}
+    for cat in dtf[y].unique():
+        features_chi2 = feature_selection.chi2(X, dtf[y] == cat)
+        indices = np.argsort(features_chi2[0])
+        feature_names = np.array(tfidf.get_feature_names())[indices]
+        print("# {}:".format(y))
+        lst_grams = []
+        for n in range(1, max_ngrams+1):
+            grams = [v for v in feature_names if len(v.split(' ')) == n]
+            print("  . {}".format('\n  . '.join(grams[-top:])))
+            print(" ")
+            lst_grams.append(grams)
+        dic_cat.update({cat:lst_grams})
+    return dic_cat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+Vectorizes the corpus (tfidf), fits the Bag of words model, plots the most frequent words.
 :parameter
     :param lst_corpus: list - list with corpus
     :param ngrams: num - number of ngrams
@@ -473,15 +413,15 @@ Vectorizes the corpus (tfidf), fits the Bag of words model, plots the most frequ
 :return
     dict with X_BoW, lst_vocabulary, dtf_vocabulary
 '''
-def model_BoW(lst_corpus, ngrams=1, max_features=None, max_df=0.8, plot=True, top=20, figsize=(10,10)):
+def BoW_tfidf(lst_corpus, ngrams=1, max_features=None, max_df=0.8, plot=True, top=20, figsize=(10,10)):
     try:
         ## fit Bag of Words (document terms matrix)
-        model = feature_extraction.text.TfidfVectorizer(max_df=max_df, max_features=max_features, ngram_range=(1,ngrams))
-        vec = model.fit(lst_corpus)
-        X_BoW = vec.transform(lst_corpus)
+        tfidf = feature_extraction.text.TfidfVectorizer(max_df=max_df, max_features=max_features, ngram_range=(1,ngrams))
+        vec = tfidf.fit(lst_corpus)
+        X = vec.transform(lst_corpus)
         
         ## put into dtf
-        lst_vocabulary = [(word, X_BoW.sum(axis=0)[0, idx]) for word, idx in vec.vocabulary_.items()]
+        lst_vocabulary = [(word, X.sum(axis=0)[0, idx]) for word, idx in vec.vocabulary_.items()]
         lst_vocabulary = sorted(lst_vocabulary, key=lambda x: x[1], reverse=True)
         dtf_vocabulary = pd.DataFrame(lst_vocabulary)
         dtf_vocabulary.columns = ["Word", "Freq"]
@@ -493,7 +433,7 @@ def model_BoW(lst_corpus, ngrams=1, max_features=None, max_df=0.8, plot=True, to
             dtf_vocabulary.iloc[:top,:].sort_values(by="Freq").plot(kind="barh", title="Most frequent "+str(ngrams)+"-grams", figsize=figsize)
             plt.show()
         
-        return {"X_BoW":X_BoW, "lst_vocabulary":lst_vocabulary, "dtf_vocabulary":dtf_vocabulary}
+        return {"X":X, "lst_vocabulary":lst_vocabulary, "dtf_vocabulary":dtf_vocabulary}
     
     except Exception as e:
         print("--- got error ---")
@@ -530,7 +470,6 @@ def BoW_search(lst_corpus, lst_vocabulary, index="auto"):
             dtf_matrix = dtf_matrix.set_index( pd.Series(index) )
             dtf_matrix = dtf_matrix.reset_index()
 
-        print("--- ok done ---")
         return dtf_matrix
 
     except Exception as e:
@@ -562,47 +501,73 @@ def plot_wordcloud(lst_corpus=None, dic_words=None, figsize=(10,10)):
     else:
         print("--- choose: lst_corpus or dic_words")
 
-
     
+
 ###############################################################################
-#                            W2V (DL)                                         #
+#                            WORD2VEC (EMBEDDINGS)                            #
 ###############################################################################
 '''
-Tranforms the corpus into a list of list of words, fits the Word2Vec model, plots vocabulary in a 2d or 3d space.
+Load a Word2Vec for spacy or gensim
+'''
+def load_w2v(library="spacy", model="en_core_web_lg", path=""):
+    if library=="spacy":
+        nlp = spacy.load(path+model)
+    elif library=="gensim":
+        nlp = gensim.models.KeyedVectors.load_word2vec_format(path+model, binary=True) #GoogleWord2Vec.bin.gz
+    return nlp
+
+
+
+'''
+Tranforms the corpus into a list of list of words.
 :parameter
-    :param lst_corpus: list - list with corpus
+    :param corpus: list or array
     :param ngrams: num - number of ngrams
 :return
     list of lists of ngrams
 '''
-def text_preprocessing_ListOfListsOfWords(lst_corpus, ngrams=1):
-    lst_lst_corpus = []
+def utils_text_preprocessing_lstwords(corpus, ngrams=1):
+    lst_corpus = []
     for string in lst_corpus:
         lst_words = string.split()
         lst_grams = [' '.join(lst_words[i:i + ngrams]) for i in range(0, len(lst_words), ngrams)]
-        lst_lst_corpus.append(lst_grams)
-    return lst_lst_corpus
+        lst_corpus.append(lst_grams)
+    return lst_corpus
  
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     
 '''
-Tranforms the corpus into a list of list of words, fits the Word2Vec model, plots vocabulary in a 2d or 3d space.
+Fits the Word2Vec model from gensim.
 :parameter
-    :param lst_lst_corpus: list - list of lists of words
+    :param corpus: list - list of lists of words
     :param min_count: num  -
     :param size: num - 
     :param window: num - 
     :param sg: num - 0 for CBOW, 1 for skipgrams
-    :param plot: string or None - "2d" or "3d"
-    :param figsize: tupla - pyplot figsize
 :return
     [model, dtf_vocabulary]: first item of list is the Word2Vec model, second is the dtf of the vocabulary
 '''
-def fit_Word2Vec(lst_lst_corpus, min_count=20, size=100, window=20, sg=0, plot="2d", figsize=(10,10)):
+def fit_w2v(corpus, ngrams=1, min_count=20, size=100, window=20, sg=0, plot="2d", figsize=(10,10)):
     try:
+        ## preprocessing
+        lst_corpus = utils_text_preprocessing_lstwords(corpus, ngrams=1)
         ## model
         print("--- training ---")
-        model = gensim.models.word2vec.Word2Vec(lst_lst_corpus, size=size, window=window, min_count=min_count, workers=4, sg=sg)
+        model = gensim.models.word2vec.Word2Vec(lst_corpus, size=size, window=window, min_count=min_count, workers=4, sg=sg)
         print("--- model fitted ---")
         lst_vocabulary = list(model.vocab.keys())
         dtf_vocabulary = pd.DataFrame(lst_vocabulary)
@@ -647,20 +612,13 @@ def fit_Word2Vec(lst_lst_corpus, min_count=20, size=100, window=20, sg=0, plot="
         print("--- got error ---")
         print(e)
    
-     
+
+
+def plot_w2v(type="2d"):
         
-'''
-'''
-def io_Word2Vec(modelpath, modelfile="GoogleWord2Vec.bin.gz", model=None):
-    ## load
-    if model is None:
-        model = gensim.models.KeyedVectors.load_word2vec_format(modelpath+modelfile, binary=True)
-        print("--- model loaded ---")
-        return model
-    ## save
-    else:
-        model.save(modelpath+modelfile)
-        print("--- model saved ---")
+        
+        
+    
     
 
 
@@ -783,6 +741,239 @@ def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
         print(e)
         
  
+    
+###############################################################################
+#                     TEXT CLASSIFICATION                                     #
+###############################################################################
+'''
+'''
+def encode_variable(dtf, column):
+    dtf[column+"_id"] = dtf[column].factorize(sort=True)[0]
+    dic_class_mapping = dict( dtf[[column+"_id",column]].drop_duplicates().sort_values(column+"_id").values )
+    return dtf, dic_class_mapping
+
+
+
+'''
+'''
+def preprocess_text(X, y, X_extra)
+
+
+
+
+
+
+'''
+'''
+def features_selection():
+    model = smf.ols(num+' ~ '+cat, data=dtf).fit()
+    table = sm.stats.anova_lm(model)
+    p = table["PR(>F)"][0]
+    coeff, p = None, round(p, 3)
+    conclusion = "Correlated" if p < 0.05 else "Non-Correlated"
+    print("Anova F: the variables are", conclusion, "(p-value: "+str(p)+")")
+    
+
+
+'''
+Fits a sklearn classification model.
+:parameter
+    :param classifier: model object - model to fit (before fitting)
+    :param X_train: array of text
+    :param y_train: array of classes
+    :param X_test: array of text
+    :param y_test: array of classes
+    :param vectorizer: vectorizer object - if None Tfidf is used
+    :param classifier: model object - if None MultinomialNB is used
+:return
+    fitted model and predictions
+'''
+def ml_text_classif(X_train, y_train, X_test, y_test, vectorizer=None, classifier=None): 
+    ## preprocessing
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
+    
+    ## model
+    classifier = naive_bayes.MultinomialNB() if classifier is None else classifier
+
+    ## pipeline
+    model = pipeline.Pipeline([
+        ("vectorizer", vectorizer),
+        ("model", classifier) ])
+    
+    ## train/test
+    model.fit(X_train, y_train)
+    predicted = model.predict(X_test)
+    predicted_prob = model.predict_proba(X_test)
+
+    ## check
+    print("True:", y_test[0])
+    print("Pred:", predicted[0], np.max(predicted_prob[0]))
+    
+    ## kpi
+    accuracy = metrics.accuracy_score(y_test, predicted)
+    print("Accuracy (overall correct predictions):",  round(accuracy,3))
+    print("Detail:")
+    print(metrics.classification_report(y_test, predicted))
+    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+'''
+def utils_text2seq(corpus, dic_vocabolary, vectorizer=None):
+    ## objects
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,1)) if vectorizer is None else vectorizer
+    tokenizer = vectorizer.build_tokenizer()
+    preprocessor = vectorizer.build_preprocessor()
+    
+    ## from text to tokens
+    X = []
+    for text in corpus:
+        lst_words = tokenizer(preprocessor(text))
+        lst_idx = [dic_vocabolary[word] for word in lst_words if word in dic_vocabolary]
+        X.append(lst_idx)
+        
+    print("from: ", X[0], " | len:", len(X[0].split()))
+    print("to: ", X[0], " | len:", len(X[0]))
+    print("check: ", X[0].split()[0], " -- idx in vocabolary -->", dic_vocabolary[X[0].split()[0]])
+    
+    ## from tokens to sequences of same length
+    maxlen = np.max([len(text.split()) for text in corpus])
+    X = preprocessing.sequence.pad_sequences(X, maxlen=maxlen, value=len(vectorizer.get_feature_names()))
+    print("shape:", X.shape)
+    return X
+
+
+
+'''
+Embeds a vocabolary of unigrams with spacy w2v
+'''
+def vocabolary_embeddings(nlp, dic_vocabolary, dim_space=300):
+    embeddings = np.zeros(len(dic_vocabolary), dim_space)
+    for word,idx in dic_vocabolary.items():
+        try:
+            embeddings[idx] =  nlp.vocab[word].vector
+        except:
+            pass
+    print("shape: ", embeddings.shape)
+    return embeddings
+
+
+
+'''
+Fits a keras classification model.
+:parameter
+    :param dic_y_mapping: dict - {0:"A", 1:"B", 2:"C"}
+    :param model: model object - model to fit (before fitting)
+    :param embeddings: array of embeddings
+    :param X_train: array of sequence
+    :param y_train: array of classes
+    :param X_test: array of sequence
+    :param y_test: array of classes
+:return
+    model fitted and predictions
+'''
+def dl_text_classif(dic_y_mapping, model, embeddings, X_train, y_train, X_test, y_test, epochs=10, batch_size=256):
+    ## model
+    if model is None:
+        ### params
+        n_features = embeddings.shape[0]
+        embeddings_dim = embeddings.shape[1]
+        max_seq_lenght = X_train.shape[1]
+        ### neural network
+        model = models.Sequential()
+        model.add( layers.Embedding(input_dim=n_features, 
+                                    output_dim=embeddings_dim, 
+                                    weights=[embeddings],
+                                    input_length=max_seq_lenght, 
+                                    trainable=False) )
+        model.add( layers.LSTM(units=max_seq_lenght, dropout=0.2) )
+        model.add( layers.Dense(len(np.unique(y_train)), activation='softmax') )
+        model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    
+    ## train
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
+    fig, ax = plt.subplots()
+    ax.plot(training.history['loss'], label='loss')
+    ax.grid(True)
+    plt.xlabel('epoch')
+    plt.legend()
+    plt.show()
+    print(training.model.summary())
+    
+    ## test
+    predicted_prob = model.predict(X_test)
+    predicted = [dic_y_mapping[np.argmax(predicted_prob)] for pred in predicted_prob]
+    y_test = [dic_y_mapping[y] for y in y_test]
+    
+    ## check
+    print("True:", y_test[0])
+    print("Pred:", predicted[0], np.max(predicted_prob[0]))
+    
+    ## kpi
+    accuracy = metrics.accuracy_score(y_test, predicted)
+    print("Accuracy (overall correct predictions):",  round(accuracy,3))
+    print("Detail:")
+    print(metrics.classification_report(y_test, predicted))
+    return {"model":training.model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+Evaluates a model performance.
+:parameter
+    :param y_test: array
+    :param predicted: array
+    :param predicted_prob: array
+    :param figsize: tuple - plot setting
+'''
+def evaluate_text_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
+    classes = np.unique(y_test)
+    y_test_array = pd.get_dummies(y_test, drop_first=False).values
+         
+    ## confusion matrix
+    cm = metrics.confusion_matrix(y_test, predicted)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
+    ax.set(xlabel="Pred", ylabel="True", xticklabels=classes, yticklabels=classes)
+    plt.yticks(rotation=0)
+    plt.title("Confusion matrix")
+    plt.show()
+    
+    ## roc
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    plt.figure(figsize=figsize)
+    for i in range(len(classes)):
+        fpr[i], tpr[i], thresholds = metrics.roc_curve(y_test_array[:,i], predicted_prob[:,i])
+        roc_auc[i] = metrics.auc(fpr[i], tpr[i])
+        plt.plot(fpr[i], tpr[i], lw=3, label='ROC curve of {0} (area={1:0.2f})'''.format(classes[i], roc_auc[i]))
+    plt.plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate (Recall)')
+    plt.title('Receiver operating characteristic')
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.show()
+    
+    ## precision-recall curve
+    precision = dict()
+    recall = dict()
+    plt.figure(figsize=figsize)
+    for i in range(len(classes)):
+        precision[i], recall[i], thresholds = metrics.precision_recall_curve(y_test_array[:,i], predicted_prob[:,i])
+        plt.plot(recall[i], precision[i], lw=3, label='{}'.format(classes[i]))
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall curve')
+    plt.legend(loc="best")
+    plt.grid(True)
+    plt.show()
+    
+
 
 ###############################################################################
 #                  TOPIC MODELING                                             #
@@ -833,6 +1024,7 @@ def predict_lda(txt, lda_model):
     return topic          
 
 
+
 ###############################################################################
 #                 STRINGS MATCHING                                            #
 ###############################################################################
@@ -845,7 +1037,7 @@ Computes the similarity of two strings with textdistance.
 :return
     similarity score
 '''
-def strings_similarity(a, b, algo="cosine"):
+def utils_strings_similarity(a, b, algo="cosine"):
     a = re.sub(r'[^\w\s]', '', str(a).lower().strip())
     b = re.sub(r'[^\w\s]', '', str(b).lower().strip())
     
@@ -881,23 +1073,18 @@ Computes the similarity of two strings with textdistance.
     dtf_matches - dataframe with matches
 '''
 def match_strings(stringa, lst_strings, algo="cosine", threshold=0.7, top=1):
-    try:
-        ## compute similarity
-        dtf_matches = pd.DataFrame([{"stringa":stringa, "match":str_match,
-                                     algo+"_similarity": strings_similarity(stringa, str_match, algo=algo)}
-                                     for str_match in lst_strings])
-        ## put in a dtf
-        dtf_matches = dtf_matches[ dtf_matches[algo+"_similarity"]>=threshold ]
-        dtf_matches = dtf_matches[["stringa", "match", algo+"_similarity"]].sort_values(algo+"_similarity", ascending=False)
-        if top is not None:
-            dtf_matches = dtf_matches.iloc[0:top,:]
-        if len(dtf_matches) == 0:
-            dtf_matches = pd.DataFrame([[stringa,"None",0]], columns=['stringa','match',algo+"_similarity"])
-        return dtf_matches
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+    ## compute similarity
+    dtf_matches = pd.DataFrame([{"stringa":stringa, "match":str_match,
+                                 algo+"_similarity": utils_strings_similarity(stringa, str_match, algo=algo)}
+                                 for str_match in lst_strings])
+    ## put in a dtf
+    dtf_matches = dtf_matches[ dtf_matches[algo+"_similarity"]>=threshold ]
+    dtf_matches = dtf_matches[["stringa", "match", algo+"_similarity"]].sort_values(algo+"_similarity", ascending=False)
+    if top is not None:
+        dtf_matches = dtf_matches.iloc[0:top,:]
+    if len(dtf_matches) == 0:
+        dtf_matches = pd.DataFrame([[stringa,"None",0]], columns=['stringa','match',algo+"_similarity"])
+    return dtf_matches
 
 
 
@@ -925,4 +1112,3 @@ def vlookup(lst_left, lst_right, algo="cosine", threshold=0.7, top=1):
     except Exception as e:
         print("--- got error ---")
         print(e)
-    

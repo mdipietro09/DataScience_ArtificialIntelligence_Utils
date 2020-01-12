@@ -25,8 +25,9 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(20,13)):
     rolling_std = ts.rolling(window=window).std()
     plt.figure(figsize=figsize)
     plt.title(ts.name)
+    plt.plot(ts[window:], label='Actual values', color="black")
     if plot_ma:
-        plt.plot(rolling_mean, 'g', label='MA'+str(window))
+        plt.plot(rolling_mean, 'g', label='MA'+str(window), color="red")
     if plot_intervals:
         #mean_absolute_error = np.mean(np.abs((ts[window:] - rolling_mean[window:]) / ts[window:])) * 100
         #deviation = np.std(ts[window:] - rolling_mean[window:])
@@ -34,11 +35,12 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(20,13)):
         #upper_bound = rolling_mean + (mean_absolute_error + 1.96 * deviation)
         lower_bound = rolling_mean - (1.96 * rolling_std)
         upper_bound = rolling_mean + (1.96 * rolling_std)
-        plt.plot(upper_bound, 'r--', label='Upper bound / Lower bound')
-        plt.plot(lower_bound, 'r--')
-    plt.plot(ts[window:], label='Actual values', linewidth=3)
+        #plt.plot(upper_bound, 'r--', label='Upper bound / Lower bound')
+        #plt.plot(lower_bound, 'r--')
+        plt.fill_between(x=ts.index, y1=lower_bound, y2=upper_bound, color='lightskyblue', alpha=0.4)
     plt.legend(loc='best')
     plt.grid(True)
+    plt.show()
         
 
 
@@ -59,9 +61,9 @@ def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(20,13)):
         dtf_ts["lower"] = dtf_ts["ts"].head(sample_size).mean() + dtf_ts["ts"].head(sample_size).std()
         dtf_ts["upper"] = dtf_ts["ts"].head(sample_size).mean() - dtf_ts["ts"].head(sample_size).std()
         dtf_ts["ts"].plot(ax=ts_ax, color="black", legend=False)
-        dtf_ts["mean"].plot(ax=ts_ax, legend=False, color="blue", linestyle="--", linewidth=0.7)
+        dtf_ts["mean"].plot(ax=ts_ax, legend=False, color="red", linestyle="--", linewidth=0.7)
         ts_ax.fill_between(x=dtf_ts.index, y1=dtf_ts['lower'], y2=dtf_ts['upper'], color='lightskyblue', alpha=0.4)
-        dtf_ts["mean"].head(sample_size).plot(ax=ts_ax, legend=False, color="blue", linewidth=0.9)
+        dtf_ts["mean"].head(sample_size).plot(ax=ts_ax, legend=False, color="red", linewidth=0.9)
         ts_ax.fill_between(x=dtf_ts.head(sample_size).index, y1=dtf_ts['lower'].head(sample_size), y2=dtf_ts['upper'].head(sample_size), color='lightskyblue')
         
         ## test stationarity (Augmented Dickey-Fuller)
@@ -153,7 +155,7 @@ def utils_split_train_test(ts, exog=None, test=0.2):
         split = ts.index.tolist().index(test)
     else:
         split = test
-    print("--- splitting at index ---", split)
+    print("--- splitting at index: ", split, " ---")
     ts_train = ts.head(split)
     ts_test = ts.tail(len(ts)-split)  
     if exog is not None:
@@ -175,15 +177,23 @@ def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"
         dtf["fitting_error"] = dtf[col_ts] - dtf[col_fitted]
         dtf["error_pct"] =  dtf["fitting_error"] / dtf[col_ts]
         dtf["prediction_error"] = dtf[col_ts] - dtf[col_test]
+        dtf["prediction_error_pct"] = dtf["prediction_error"] / dtf[col_ts]
         
         ## kpi
+        ### fitting
         error_mean = dtf["fitting_error"].mean()  #errore medio
         error_std = dtf["fitting_error"].std()  #standard dev dell'errore
-        prediction_error_std = dtf["prediction_error"].std()
         mae = dtf["fitting_error"].apply(lambda x: np.abs(x)).mean()  #mean absolute error
         mape = dtf["error_pct"].apply(lambda x: np.abs(x)).mean()  #mean absolute error %
         mse = dtf["fitting_error"].apply(lambda x: x**2).mean() # mean squared error
         rmse = np.sqrt(mse)  #root mean squared error
+        ### testing
+        prediction_error_mean = dtf["prediction_error"].mean()
+        prediction_error_std = dtf["prediction_error"].std()
+        prediction_mae = dtf["prediction_error"].apply(lambda x: np.abs(x)).mean()
+        prediction_mape = dtf["prediction_error_pct"].apply(lambda x: np.abs(x)).mean()
+        prediction_mse = dtf["prediction_error"].apply(lambda x: x**2).mean()
+        prediction_rmse = np.sqrt(prediction_mse)
         
         ## intervals
         dtf["conf_int_low"] = dtf[col_preds] - 1.96*error_std
@@ -206,9 +216,9 @@ def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"
             ### residuals distribution
             dtf[["fitting_error","prediction_error"]].plot(ax=ax[1,1], color=["green","red"], kind='kde', title="Residuals Distribution", grid=True)
             plt.show()
-            print("error_mean:",np.round(error_mean), " | error_std:",np.round(error_std),
-              " | mae:",np.round(mae), " | mape:",np.round(mape*100), " | mse:",np.round(mse), 
-              " | rmse:",np.round(rmse))
+            print("error_mean:",np.round(prediction_error_mean), " | error_std:",np.round(prediction_error_std),
+              " | mae:",np.round(prediction_mae), " | mape:",np.round(prediction_mape*100), "%  | mse:",np.round(prediction_mse), 
+              " | rmse:",np.round(prediction_rmse))
         
         return dtf
     
@@ -236,15 +246,15 @@ Fits Holt-Winters Exponential Smoothing:
 '''
 def fit_expsmooth(ts, trend=None, seasonal=None, s=None, alpha=0.94, test=0.2, pred_ahead=5, figsize=(20,13)):
     ## checks
-    check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+seasonal+" Seasonality every "+str(s)+" observations"
+    check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+str(seasonal)+" Seasonality every "+str(s)+" observations"
     print(check_seasonality)
     
     ## split train/test
     ts_train, ts_test = utils_split_train_test(ts, test=test)
     
-    ## fit model
+    ## train
     #alpha = alpha if s is None else 2/(s+1)
-    model = smt.ExponentialSmoothing(ts, trend=trend, seasonal=seasonal, seasonal_periods=s).fit(smoothing_level=alpha)
+    model = smt.ExponentialSmoothing(ts_train, trend=trend, seasonal=seasonal, seasonal_periods=s).fit(smoothing_level=alpha)
     dtf = ts.to_frame(name="ts")
     dtf["fitted"] = model.fittedvalues
     
@@ -282,7 +292,7 @@ Fits SARIMAX (Seasonal ARIMA with External Regressors):
 '''
 def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
     ## checks
-    check_trend = "Trend parameters: No trend and No differencing" if (order[1] == 0) & (trend==None) else "Trend parameters: trend is "+trend+" and d="+str(order[1])
+    check_trend = "Trend parameters: No trend and No differencing" if (order[1] == 0) & (trend==None) else "Trend parameters: trend is "+str(trend)+" and d="+str(order[1])
     print(check_trend)
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal_order[3] == 0) & (np.sum(seasonal_order[0:3]) == 0) else "Seasonal parameters: Seasonality every "+str(seasonal_order[3])+" observations"
     print(check_seasonality)
@@ -296,7 +306,7 @@ def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=No
     else:
         ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
     
-    ## fit model
+    ## train
     model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit(disp=-1, trend=trend)
     dtf = ts.to_frame(name="ts")
     dtf["fitted"] = model.fittedvalues
@@ -327,12 +337,14 @@ Fits best Seasonal-ARIMAX.
 :return
     best model
 '''
-def find_best_sarimax(ts, seasonal=True, stationary=False, s=1, exog=None):
+def find_best_sarimax(ts, seasonal=True, stationary=False, s=1, exog=None,
+                      max_p=10, max_d=3, max_q=10,
+                      max_P=10, max_D=3, max_Q=10):
     best_model = pmdarima.auto_arima(ts, exogenous=exog,
                                      seasonal=seasonal, stationary=stationary, m=s, 
                                      information_criterion='aic', max_order=20,
-                                     max_p=10, max_d=10, max_q=10,
-                                     max_P=10, max_D=10, max_Q=10,
+                                     max_p=max_p, max_d=max_d, max_q=max_q,
+                                     max_P=max_P, max_D=max_D, max_Q=max_Q,
                                      error_action='ignore')
     print("best model --> (p, d, q):", best_model.order, " and  (P, D, Q, s):", best_model.seasonal_order)
     return best_model.summary()
@@ -373,19 +385,37 @@ Fits prophet on Business Data:
 :return
     dtf with predictons and the model
 '''
-def fit_prophet(ts, freq="D", preds_ahead=5, figsize=(20,13),
+def fit_prophet(ts, freq="D", figsize=(20,13),
                 growth="linear", changepoints=None, n_changepoints=25,
                 yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto", seasonality_mode='additive',
-                holidays=None, lst_exog=None, pred_exog=None):
-    ## fit model
+                holidays=None, lst_exog=None, pred_exog=None,
+                test=0.2, preds_ahead=5):
+    ## split train/test
+    ts_train, ts_test = utils_split_train_test(ts, exog=None, test=test)
+     
+    ## prophet
     model = Prophet(growth, changepoints=changepoints, n_changepoints=n_changepoints,
                     yearly_seasonality=yearly_seasonality, weekly_seasonality=weekly_seasonality, daily_seasonality=daily_seasonality,seasonality_mode=seasonality_mode,
                     holidays=holidays)
     if lst_exog != None:
         for regressor in lst_exog:
             model.add_regressor(regressor)
-        
-    model.fit(ts)
+    
+    ## train
+    model.fit(ts_train)
+    
+    ## test
+    dtf_prophet = model.make_future_dataframe(periods=len(ts_test), freq=freq, include_history=True)
+    
+    if growth == "logistic":
+        dtf_prophet["cap"] = ts_train["cap"].unique()[0]
+    
+    if lst_exog != None:
+        dtf_prophet = dtf_prophet.merge(ts_train[["ds"]+lst_exog], how="left")
+        dtf_prophet.iloc[-preds_ahead:][lst_exog] = ts_test[lst_exog].values
+    
+    dtf_prophet = model.predict(dtf_prophet)
+    
     
     ## predict
     dtf_prophet = model.make_future_dataframe(periods=preds_ahead, freq=freq, include_history=True)
@@ -400,8 +430,10 @@ def fit_prophet(ts, freq="D", preds_ahead=5, figsize=(20,13),
     dtf_prophet = model.predict(dtf_prophet)
     
     ## plot prophet
-    fig = fbPlot.plot(model, dtf_prophet, figsize=figsize)
-    fbPlot.add_changepoints_to_plot(fig.gca(), model, dtf_prophet)
+    #fig = fbPlot.plot(model, dtf_prophet, figsize=figsize)
+    #fbPlot.add_changepoints_to_plot(fig.gca(), model, dtf_prophet)
+    
+    
     
     return dtf_prophet[["ds", "yhat_lower", "yhat", "yhat_upper"]], model
 
@@ -461,7 +493,8 @@ def ts_preprocessing(ts, scaler=None, exog=None, s=20):
 
 '''
 '''
-def predict_lstm(ts, model, scaler, exog=None, s=20):
+def predict_lstm(ts, model, scaler, exog=None):
+    s = model.input_shape[-1]
     lst_fitted = [np.nan]*s
     for i in range(len(ts)):
         end_ix = i + s
@@ -479,8 +512,9 @@ def predict_lstm(ts, model, scaler, exog=None, s=20):
 
 '''
 '''
-def forecast_lstm(ts, model, scaler, exog=None, s=20, ahead=5):
+def forecast_lstm(ts, model, scaler, exog=None, ahead=5):
     ## preprocess
+    s = model.input_shape[-1]
     ts = ts.sort_index(ascending=True).values
     ts_preprocessed = list(scaler.fit_transform(ts.reshape(-1,1)))
          
@@ -525,10 +559,12 @@ def fit_lstm(ts, exog=None, s=20, neurons=50, batch_size=1, epochs=100, test=0.2
     model.add( layers.Dense(1) )
     model.compile(optimizer='rmsprop', loss='mean_squared_error')
     
-    ## fit
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=1)
-    fig, ax = plt.subplots(figsize=figsize)
+    ## train
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0)
+    print("--- training ---")
+    fig, ax = plt.subplots()
     ax.plot(training.history['loss'], label='loss')
+    ax.grid(True)
     plt.xlabel('epoch')
     plt.legend()
     plt.show()
@@ -536,29 +572,31 @@ def fit_lstm(ts, exog=None, s=20, neurons=50, batch_size=1, epochs=100, test=0.2
     
     ## create dtf with fitted values
     dtf = ts.to_frame(name="ts")
-    fitted_values = predict_lstm(ts_train, training.model, scaler, s)
+    fitted_values = predict_lstm(ts_train, training.model, scaler, exog_train)
     dtf["fitted"] = pd.DataFrame(data=fitted_values, index=ts_train.index)
     
     ## test
-    preds = predict_lstm(ts_test, training.model, scaler, s) 
-    dtf["test"] = pd.DataFrame(data=preds, index=ts_test.index)
+    test_data = ts_train[-s:].append(ts_test) 
+    preds = predict_lstm(test_data, training.model, scaler, exog_test) 
+    dtf["test"] = pd.DataFrame(data=preds[-len(ts_test):], index=ts_test.index)
     
     ## forecast
     ### refit final model with all data
+    print("--- testing ---")
     X_train, y_train, scaler = ts_preprocessing(ts, scaler=None, exog=exog, s=s)
     final_model = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0)
-    forecast = forecast_lstm(ts, final_model.model, scaler, exog=exog, s=s, ahead=ahead)
+    forecast = forecast_lstm(ts, final_model.model, scaler, exog, ahead)
     ### predictions ahead
     if freq is not None:
         start = ts.index[-1] + datetime.timedelta(days=1)
         end = start + datetime.timedelta(days=ahead-1)
         forecast_index = pd.date_range(start=start, end=end, freq=freq)
     else:
-        forecast_index = ts.index[-1] + ahead
-    dtf = dtf.append(pd.DataFrame(data=forecast, index=forecast_index, columns="forecast"))
+        forecast_index = np.arange(ts.index[-1]+1, ts.index[-1]+1+ahead)  
+    dtf = dtf.append(pd.DataFrame(data=forecast, index=forecast_index, columns={"forecast"}))
     
     ## evaluate
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="LSTM with "+str(neurons)+" Neurons")
+    dtf = utils_evaluate_forecast(dtf[s:], figsize=figsize, title="LSTM with "+str(neurons)+" Neurons")
     return dtf, final_model.model
 
 
