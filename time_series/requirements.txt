@@ -6,6 +6,6 @@ pandas==0.25.1
 xlrd==1.2.0
 scikit-learn==0.22
 statsmodels==0.10.1
-tensorflow==1.13.2
+tensorflow==1.15.0
 pmdarima==1.5.2
 fbprophet==0.5
