@@ -24,11 +24,19 @@ import random
 ###############################################################################
 '''
 '''
-def utils_plot_distributions(dtf, x, y, bins=None, figsize=(10,5)):
-    bins = dtf[x].nunique() if bins is None else bins
-    for i in dtf[y].unique():
-        dtf[dtf[y]==i][x].hist(alpha=0.8, figsize=figsize, bins=bins)
-    plt.legend(dtf[y].unique())
+def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)):
+    ## univariate
+    if y is None:
+        if top is None:
+            dtf[x].reset_index().groupby(x).count().sort_values(by="index").plot(kind="barh", figsize=figsize, legend=False, grid=True)
+        else:
+            dtf[x].reset_index().groupby(x).count().sort_values(by="index").tail(top).plot(kind="barh", figsize=figsize, legend=False, grid=True)
+    ## bivariate
+    else:
+        bins = dtf[x].nunique() if bins is None else bins
+        for i in dtf[y].unique():
+            dtf[dtf[y]==i][x].hist(alpha=0.8, figsize=figsize, bins=bins)
+        plt.legend(dtf[y].unique())
     plt.show()
 
 
@@ -37,7 +45,7 @@ def utils_plot_distributions(dtf, x, y, bins=None, figsize=(10,5)):
 '''
 def add_detect_lang(dtf, column):
     dtf[column+'_lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")    
-    dtf[[column+'_lang']].describe().T
+    print(dtf[[column+'_lang']].describe().T)
     return dtf
 
 
@@ -53,7 +61,7 @@ Computes the count of words and the count of characters.
 def add_text_count(dtf, column):
     dtf[column+'_word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
     dtf[column+'_text_length'] = dtf[column].str.len()
-    dtf[[column+'_word_count',column+'_text_length']].describe().T
+    print(dtf[[column+'_word_count',column+'_text_length']].describe().T)
     return dtf
 
 
@@ -173,7 +181,7 @@ def add_sentiment(dtf, column, algo="nltk"):
         dtf[column+"_sentiment"] = dtf[column].apply(lambda x: nltk_sentim.polarity_scores(x)["compound"])
     elif algo=="textblob":
         dtf[column+"_sentiment"] = dtf[column].apply(lambda x: TextBlob(x).sentiment.polarity)
-    dtf[[column+'_sentiment']].describe().T
+    print(dtf[[column+'_sentiment']].describe().T)
     return dtf
 
 
@@ -248,8 +256,8 @@ def add_ner_spacy(dtf, column, model="en_core_web_lg", tag_type="all", top=20, f
         else:
             #dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type])) )
             dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type] )
+        
         dtf["tags"] = dtf["tags"].apply(lambda x: utils_lst_count(x, top=None))
-        print("--- added tags column ---")
 
         ## compute overall frequency
         tags_list = dtf["tags"].sum()
@@ -615,6 +623,7 @@ def fit_w2v(corpus, ngrams=1, min_count=20, size=100, window=20, sg=0, plot="2d"
 
 
 def plot_w2v(type="2d"):
+    return 0
         
         
         
@@ -756,7 +765,8 @@ def encode_variable(dtf, column):
 
 '''
 '''
-def preprocess_text(X, y, X_extra)
+def preprocess_text(X, y, X_extra):
+    return 0
 
 
 
