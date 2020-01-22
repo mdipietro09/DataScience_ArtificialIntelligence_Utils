@@ -560,6 +560,7 @@ def fit_lstm(ts, exog=None, s=20, neurons=50, batch_size=1, epochs=100, test=0.2
     model.compile(optimizer='rmsprop', loss='mean_squared_error')
     
     ## train
+    print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0)
     print("--- training ---")
     fig, ax = plt.subplots()
@@ -568,7 +569,6 @@ def fit_lstm(ts, exog=None, s=20, neurons=50, batch_size=1, epochs=100, test=0.2
     plt.xlabel('epoch')
     plt.legend()
     plt.show()
-    print(training.model.summary())
     
     ## create dtf with fitted values
     dtf = ts.to_frame(name="ts")

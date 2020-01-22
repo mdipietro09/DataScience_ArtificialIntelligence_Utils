@@ -1123,14 +1123,14 @@ def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100,
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     
     ## fit
+    print(model.summary())
     training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
     plt.ylabel("Loss")
     plt.xlabel("epochs")
     plt.show()
-    print(training.model.summary())
-    model = training.model
     
     ## predict
     predicted_prob = model.predict(X_test)
@@ -1166,14 +1166,14 @@ def fit_ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, sc
     model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
     
     ## fit
+    print(model.summary())
     training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
     plt.ylabel("Loss")
     plt.xlabel("epochs")
     plt.show()
-    print(training.model.summary())
-    model = training.model
     
     ## predict
     predicted = model.predict(X_test)

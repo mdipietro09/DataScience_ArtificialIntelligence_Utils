@@ -8,10 +8,11 @@ import langdetect
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
-from sklearn import feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline
-from tensorflow.keras import models, layers, preprocessing
+from sklearn import preprocessing, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline
+from tensorflow.keras import models, layers, preprocessing as kprocessing
 import wordcloud
 import gensim
+import gensim.downloader as gensim_api
 import spacy
 import difflib
 import collections
@@ -27,16 +28,23 @@ import random
 def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)):
     ## univariate
     if y is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        fig.suptitle(x, fontsize=12)
         if top is None:
-            dtf[x].reset_index().groupby(x).count().sort_values(by="index").plot(kind="barh", figsize=figsize, legend=False, grid=True)
-        else:
-            dtf[x].reset_index().groupby(x).count().sort_values(by="index").tail(top).plot(kind="barh", figsize=figsize, legend=False, grid=True)
+            dtf[x].reset_index().groupby(x).count().sort_values(by="index").plot(kind="barh", legend=False, ax=ax).grid(axis='x')
+        else:   
+            dtf[x].reset_index().groupby(x).count().sort_values(by="index").tail(top).plot(kind="barh", legend=False, ax=ax).grid(axis='x')
     ## bivariate
     else:
         bins = dtf[x].nunique() if bins is None else bins
+        fig, ax = plt.subplots(nrows=1, ncols=2,  sharex=False, sharey=False, figsize=figsize)
+        fig.suptitle(x, fontsize=12)
         for i in dtf[y].unique():
-            dtf[dtf[y]==i][x].hist(alpha=0.8, figsize=figsize, bins=bins)
-        plt.legend(dtf[y].unique())
+            sns.distplot(dtf[dtf[y]==i][x], hist=True, kde=False, bins=bins, hist_kws={"alpha":0.8}, axlabel="histogram", ax=ax[0])
+            sns.distplot(dtf[dtf[y]==i][x], hist=False, kde=True, kde_kws={"shade":True}, axlabel="density", ax=ax[1])
+        ax[0].grid(True)
+        ax[0].legend(dtf[y].unique())
+        ax[1].grid(True)
     plt.show()
 
 
@@ -44,8 +52,8 @@ def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)
 '''
 '''
 def add_detect_lang(dtf, column):
-    dtf[column+'_lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")    
-    print(dtf[[column+'_lang']].describe().T)
+    dtf['lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")    
+    print(dtf[['lang']].describe().T)
     return dtf
 
 
@@ -59,31 +67,35 @@ Computes the count of words and the count of characters.
     dtf: input dataframe with 2 new columns
 '''
 def add_text_count(dtf, column):
-    dtf[column+'_word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
-    dtf[column+'_text_length'] = dtf[column].str.len()
-    print(dtf[[column+'_word_count',column+'_text_length']].describe().T)
+    dtf['word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
+    dtf['text_length'] = dtf[column].str.len()
+    print(dtf[['word_count','text_length']].describe().T)
     return dtf
 
 
 
 '''
-Computes the words frequencies.
+Computes the sentiment using Textblob.
 :parameter
-    :param dtf: dataframe - dtf with a text column
-    :param column: string - name of column containing text
-    :param top: num - plot the top frequent words
-    :param figsize: tupla - pyplot figsize
+    :param dtf: dataframe - dtf with a text column
+    :param column: string - name of column containing text
+    :param algo: string - textblob or nltk
+    :param sentiment_range: tuple - if not (-1,1) score is rescaled with sklearn
 :return
-    dtf_count: dtf with word frequency
+    dtf: input dataframe with new sentiment column
 '''
-def words_freq(dtf, column, top=30, figsize=(10,10)):
-    huge_str = dtf[column].str.cat(sep=" ")
-    lst_tokens = nltk.tokenize.word_tokenize(huge_str)
-    dic_words_freq = nltk.FreqDist(lst_tokens)
-    dtf_count = pd.DataFrame(dic_words_freq.most_common(), columns=["Word", "Freq"])
-    dtf_count.set_index("Word").iloc[:top, :].sort_values(by="Freq").plot(kind="barh", title="Most frequent words", figsize=figsize)
-    plt.show()
-    return dtf_count
+def add_sentiment(dtf, column, algo="nltk", sentiment_range=(-1,1)):
+    ## calculate sentiment
+    if algo=="nltk":
+        nltk_sentim = SentimentIntensityAnalyzer()
+        dtf["sentiment"] = dtf[column].apply(lambda x: nltk_sentim.polarity_scores(x)["compound"])
+    elif algo=="textblob":
+        dtf["sentiment"] = dtf[column].apply(lambda x: TextBlob(x).sentiment.polarity)
+    ## rescale
+    if sentiment_range != (-1,1):
+        dtf["sentiment"] = preprocessing.MinMaxScaler(feature_range=sentiment_range).fit_transform(dtf[["sentiment"]])
+    print(dtf[['sentiment']].describe().T)
+    return dtf
 
 
 
@@ -163,55 +175,65 @@ def add_preprocessed_text(dtf, column, lst_regex=None, flg_stemm=False, flg_lemm
 
 
 
-###############################################################################
-#                      SENTIMENT                                              #
-###############################################################################
 '''
-Computes the sentiment using Textblob.
+Computes the words frequencies.
 :parameter
-    :param dtf: dataframe - dtf with a text column
-    :param column: string - name of column containing text
-    :param algo: string - 
+    :param dtf: dataframe - dtf with a text column
+    :param column: string - name of column containing text
+    :param top: num - plot the top frequent words
+    :param figsize: tupla - pyplot figsize
 :return
-    dtf: input dataframe with new sentiment column
+    dtf_count: dtf with word frequency
 '''
-def add_sentiment(dtf, column, algo="nltk"):
-    if algo=="nltk":
-        nltk_sentim = SentimentIntensityAnalyzer()
-        dtf[column+"_sentiment"] = dtf[column].apply(lambda x: nltk_sentim.polarity_scores(x)["compound"])
-    elif algo=="textblob":
-        dtf[column+"_sentiment"] = dtf[column].apply(lambda x: TextBlob(x).sentiment.polarity)
-    print(dtf[[column+'_sentiment']].describe().T)
-    return dtf
+def words_freq(dtf, column, top=30, figsize=(10,10)):
+    huge_str = dtf[column].str.cat(sep=" ")
+    lst_tokens = nltk.tokenize.word_tokenize(huge_str)
+    dic_words_freq = nltk.FreqDist(lst_tokens)
+    dtf_count = pd.DataFrame(dic_words_freq.most_common(), columns=["Word", "Freq"])
+    dtf_count.set_index("Word").iloc[:top, :].sort_values(by="Freq").plot(kind="barh", title="Top frequent words", figsize=figsize, legend=False).grid(axis='x')
+    plt.show()
+    return dtf_count
 
 
 
 '''
-Creates a pivot table of sentiment sources breakdown.
+Plots a wordcloud from a list of Docs or from a dictionary
 :parameter
-    :param dtf: dataframe - dtf with a sentiment column
-    :param index: string or list - name of column to use as rows
-    :param columns: string or list - name of column to use as columns
-    :param aggfunc: string or list - functions to apply to summarize results
-:return
-    dtf_sentim: pivot table as dataframe
+    :param lst_corpus: list or None
+    :param dic_words: dict or None {"word1":freq1, "word2":freq2, ...}
 '''
-def pivot_sentiment(dtf, index, columns, aggfunc="sum"):
-    try:
-        dtf_sentim = pd.pivot_table(dtf, values="sentiment", index=index, columns=columns, aggfunc=aggfunc, fill_value=0)
-        dtf_sentim["sentiment"] = round(dtf_sentim.sum(axis=1), ndigits=2)
-        dtf_sentim = dtf_sentim.sort_values("sentiment", ascending=False)
-        return dtf_sentim
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
+def plot_wordcloud(corpus, max_words=150, max_font_size=35, figsize=(10,10)):
+    wc = wordcloud.WordCloud(background_color='black', max_words=max_words, max_font_size=max_font_size)
+    wc = wc.generate(str(corpus)) if type(corpus) is not dict else wc.generate_from_frequencies(corpus)     
+    fig = plt.figure(num=1, figsize=figsize)
+    plt.axis('off')
+    plt.imshow(wc, cmap=None)
+    plt.show()
+    
 
         
 ###############################################################################
 #                            NER                                              #
 ###############################################################################
+'''
+Display the spacy NER model.
+:parameter
+    :param txt: string - text input for the model.
+    :param model: string - "en_core_web_lg", "en_core_web_sm", "xx_ent_wiki_sm"
+    :param lst_filter_tags: list or None - example ["ORG", "GPE", "LOC"], None for all tags
+    :param title: str or None
+'''
+def ner_displacy(txt, ner=None, lst_filter_tags=None, title=None, serve=False):
+    ner = spacy.load("en_core_web_lg") if ner is None else ner
+    doc = ner(txt)
+    doc.user_data["title"] = title
+    if serve == True:
+        spacy.displacy.serve(doc, style="ent", options={"ents":lst_filter_tags})
+    else:
+        spacy.displacy.render(doc, style="ent", options={"ents":lst_filter_tags})
+        
+        
+
 '''
 Counts the elements in a list.
 :parameter
@@ -233,69 +255,91 @@ def utils_lst_count(lst, top=None):
 
 
 '''
+Creates columns
+    :param lst_dics_tuples: [{('Texas','GPE'):1}, {('Trump','PERSON'):3}]
+    :param tag: string - 'PERSON'
+:return
+    int
+'''
+def utils_ner_features(lst_dics_tuples, tag):
+    if len(lst_dics_tuples) > 0:
+        tag_type = []
+        for dic_tuples in lst_dics_tuples:
+            for tuple in dic_tuples:
+                type, n = tuple[1], dic_tuples[tuple]
+                tag_type = tag_type + [type]*n
+                dic_counter = collections.Counter()
+                for x in tag_type:
+                    dic_counter[x] += 1
+        return dic_counter[tag]   #pd.DataFrame([dic_counter])
+    else:
+        return 0
+
+
+
+'''
 Applies the spacy NER model.
 :parameter
     :param dtf: dataframe - dtf with a text column
     :param column: string - name of column containing text
-    :param model: string - "en_core_web_lg", "en_core_web_sm", "xx_ent_wiki_sm"
-    :param tag_type: string or list - "all" or ["ORG","PERSON","NORP","GPE", "EVENT", ...]
-    :param top: num - plot the top frequent words
-    :param figsize: tupla - pyplot figsize
+    :param ner: spacy object - "en_core_web_lg", "en_core_web_sm", "xx_ent_wiki_sm"
+    :param tag_type: string or list - "all" or ["ORG","PERSON","NORP","GPE","EVENT", ...]
 :return
     {"dtf":dtf, "dtf_tags":dtf_tags}
 '''
-def add_ner_spacy(dtf, column, model="en_core_web_lg", tag_type="all", top=20, figsize=(10,10)):
-    try:
-        ## load model
-        ner_model = spacy.load(model)
-
-        ## apply model and add a column to the input dtf
-        if tag_type == "all":
-            #dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner_model(x).ents])) )
-            dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner_model(x).ents] )
+def add_ner_spacy(dtf, column, ner=None, tag_type="all", unique=False, create_features=True):
+    ## ner
+    ner = spacy.load("en_core_web_lg") if ner is None else ner
+    if tag_type == "all":
+        if unique == True:
+            dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner(x).ents])) )
         else:
-            #dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type])) )
-            dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner_model(x).ents if word.label_ in tag_type] )
-        
-        dtf["tags"] = dtf["tags"].apply(lambda x: utils_lst_count(x, top=None))
-
-        ## compute overall frequency
-        tags_list = dtf["tags"].sum()
-        map_lst = list(map(lambda x: list(x.keys())[0], tags_list))
-        dtf_tags = pd.DataFrame(map_lst, columns=['tag','type'])
-        dtf_tags["count"] = 1
-        dtf_tags = dtf_tags.groupby(['type','tag']).count().reset_index() 
-        dtf_tags = dtf_tags.sort_values("count", ascending=False)
-        
-        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
-        sns.barplot(x="count", y="tag", hue="type", data=dtf_tags.iloc[:top,:], ax=ax)
-        
-        return {"dtf":dtf, "dtf_tags":dtf_tags}
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
+            dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner(x).ents] )
+    else:
+        if unique == True:
+            dtf["tags"] = dtf[column].apply(lambda x: list(set([(word.text, word.label_) for word in ner(x).ents if word.label_ in tag_type])) )
+        else:
+            dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner(x).ents if word.label_ in tag_type] )
+    
+    ## count
+    dtf["tags"] = dtf["tags"].apply(lambda x: utils_lst_count(x, top=None))
+    
+    ## extract features
+    if create_features == True:
+        print("--- tagging done ---")
+        ### features set
+        tags_set = []
+        for lst in dtf["tags"].tolist():
+            for dic in lst:
+                for k in dic.keys():
+                    tags_set.append(k[1])
+        tags_set = list(set(tags_set))
+        ### create columns
+        for feature in tags_set:
+            dtf["tags_"+feature] = dtf["tags"].apply(lambda x: utils_ner_features(x, feature))
+    return dtf
 
 
 
 '''
-Display the spacy NER model.
-:parameter
-    :param txt: string - text input for the model.
-    :param model: string - "en_core_web_lg", "en_core_web_sm", "xx_ent_wiki_sm"
-    :param lst_tags: list or None - example ["ORG", "GPE", "LOC"], None for all tags
-    :param title: str or None
 '''
-def ner_displacy(txt, model="en_core_web_lg", lst_tags=None, title=None):
-    ner_model = spacy.load(model)
-    doc = ner_model(txt)
-    doc.user_data["title"] = title
-    spacy.displacy.serve( doc, style="ent", options={"ents":lst_tags} )
+def tags_freq(dtf, column, top=30, figsize=(10,10)):   
+    tags_list = dtf[column].sum()
+    map_lst = list(map(lambda x: list(x.keys())[0], tags_list))
+    dtf_tags = pd.DataFrame(map_lst, columns=['tag','type'])
+    dtf_tags["count"] = 1
+    dtf_tags = dtf_tags.groupby(['type','tag']).count().reset_index().sort_values("count", ascending=False)
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.suptitle("Top frequent tags", fontsize=12)
+    sns.barplot(x="count", y="tag", hue="type", data=dtf_tags.iloc[:top,:], dodge=False, ax=ax)
+    ax.grid(axis="x")
+    plt.show()
+    return dtf_tags
         
-        
+
         
 '''
-Retrain spacy model with new tags.
+Retrain spacy NER model with new tags.
 :parameter
     :param train_data: list [
             ("Who is Shaka Khan?", {"entities": [(7, 17, "PERSON")]}),
@@ -305,7 +349,7 @@ Retrain spacy model with new tags.
     :param model: string - "blanck" or "en_core_web_lg", ...
     :param n_iter: num - number of iteration
 '''
-def retrain_spacy(train_data, output_dir, model="blank", n_iter=100):
+def retrain_ner_spacy(train_data, output_dir, model="blank", n_iter=100):
     try:
         ## prepare data
 #        train_data = []
@@ -360,399 +404,10 @@ def retrain_spacy(train_data, output_dir, model="blank", n_iter=100):
         print("--- got error ---")
         print(e)        
         
-           
+
 
 ###############################################################################
-#                     BAG OF WORDS (VECTORIZER)                               #
-###############################################################################
-'''
-'''
-def bow_build_vocabolary(corpus, vectorizer=None):
-    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
-    vectorizer.fit(corpus)
-    dic_vocabolary = {word:idx for idx, word in enumerate(vectorizer.get_feature_names())}
-    return dic_vocabolary
-
-
-
-'''
-'''
-def words_correlation(dtf, x, y, max_ngrams=2, top=2):
-    tfidf = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,max_ngrams))
-    X = tfidf.fit_transform(dtf[x])
-    dic_cat = {}
-    for cat in dtf[y].unique():
-        features_chi2 = feature_selection.chi2(X, dtf[y] == cat)
-        indices = np.argsort(features_chi2[0])
-        feature_names = np.array(tfidf.get_feature_names())[indices]
-        print("# {}:".format(y))
-        lst_grams = []
-        for n in range(1, max_ngrams+1):
-            grams = [v for v in feature_names if len(v.split(' ')) == n]
-            print("  . {}".format('\n  . '.join(grams[-top:])))
-            print(" ")
-            lst_grams.append(grams)
-        dic_cat.update({cat:lst_grams})
-    return dic_cat
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-'''
-Vectorizes the corpus (tfidf), fits the Bag of words model, plots the most frequent words.
-:parameter
-    :param lst_corpus: list - list with corpus
-    :param ngrams: num - number of ngrams
-    :param max_features: num or None -
-    :param max_df: num -
-    :param plot: bool - 
-    :param top: num - plot the top frequent words
-    :param figsize: tupla - pyplot figsize
-:return
-    dict with X_BoW, lst_vocabulary, dtf_vocabulary
-'''
-def BoW_tfidf(lst_corpus, ngrams=1, max_features=None, max_df=0.8, plot=True, top=20, figsize=(10,10)):
-    try:
-        ## fit Bag of Words (document terms matrix)
-        tfidf = feature_extraction.text.TfidfVectorizer(max_df=max_df, max_features=max_features, ngram_range=(1,ngrams))
-        vec = tfidf.fit(lst_corpus)
-        X = vec.transform(lst_corpus)
-        
-        ## put into dtf
-        lst_vocabulary = [(word, X.sum(axis=0)[0, idx]) for word, idx in vec.vocabulary_.items()]
-        lst_vocabulary = sorted(lst_vocabulary, key=lambda x: x[1], reverse=True)
-        dtf_vocabulary = pd.DataFrame(lst_vocabulary)
-        dtf_vocabulary.columns = ["Word", "Freq"]
-        dtf_vocabulary = dtf_vocabulary.set_index("Word")
-        print(dtf_vocabulary.index)
-        
-        ## plot
-        if plot == True:
-            dtf_vocabulary.iloc[:top,:].sort_values(by="Freq").plot(kind="barh", title="Most frequent "+str(ngrams)+"-grams", figsize=figsize)
-            plt.show()
-        
-        return {"X":X, "lst_vocabulary":lst_vocabulary, "dtf_vocabulary":dtf_vocabulary}
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
-
-
-'''
-Vectorizes the corpus using a given vocabulary to find keywords into corpus with sklearn.
-:parameter
-    :param lst_corpus: list - list with corpus
-    :param lst_vocabulary: list - vocabulary for CountVectorizer
-    :param index: string "auto" or pandas Series
-:return
-    dtf_matrix - the sparse matrix as dataframe
-'''
-def BoW_search(lst_corpus, lst_vocabulary, index="auto"):
-    try:
-        ## One-Hot Encoding
-        model = feature_extraction.text.TfidfVectorizer(vocabulary=lst_vocabulary, lowercase=True, binary=True)
-
-        ## fit Bag of Words (document terms matrix)
-        X_BoW = model.fit_transform(lst_corpus)
-
-        ## put into dtf
-        dtf_matrix = pd.DataFrame(X_BoW.todense(), columns=lst_vocabulary)
-        if index == "auto":
-            dtf_matrix = dtf_matrix.set_index( pd.Series(lst_corpus) )
-            dtf_matrix = dtf_matrix.reset_index()
-        elif type(index) == pd.core.series.Series:
-            dtf_matrix = dtf_matrix.set_index( index )
-            dtf_matrix = dtf_matrix.reset_index()
-        elif type(index) == list:
-            dtf_matrix = dtf_matrix.set_index( pd.Series(index) )
-            dtf_matrix = dtf_matrix.reset_index()
-
-        return dtf_matrix
-
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-
-
-'''
-Plots a wordcloud from a list of Docs or from a dictionary
-:parameter
-    :param lst_corpus: list or None
-    :param dic_words: dict or None {"word1":freq1, "word2":freq2, ...}
-    :param figsize: tuple
-'''
-def plot_wordcloud(lst_corpus=None, dic_words=None, figsize=(10,10)):
-    if lst_corpus is not None:
-         wc = wordcloud.WordCloud(background_color='black', max_words=150, max_font_size=35, random_state=42)
-         wc = wc.generate(str(lst_corpus))
-         fig = plt.figure(num=1, figsize=figsize)
-         plt.axis('off')
-         plt.imshow(wc, cmap=None)
-    elif dic_words is not None:
-        wc = wordcloud.WordCloud(max_font_size=35)
-        wc = wc.generate_from_frequencies(dic_words)
-        fig = plt.figure(num=1, figsize=figsize)
-        plt.axis('off')
-        plt.imshow(wc, cmap=None)
-    else:
-        print("--- choose: lst_corpus or dic_words")
-
-    
-
-###############################################################################
-#                            WORD2VEC (EMBEDDINGS)                            #
-###############################################################################
-'''
-Load a Word2Vec for spacy or gensim
-'''
-def load_w2v(library="spacy", model="en_core_web_lg", path=""):
-    if library=="spacy":
-        nlp = spacy.load(path+model)
-    elif library=="gensim":
-        nlp = gensim.models.KeyedVectors.load_word2vec_format(path+model, binary=True) #GoogleWord2Vec.bin.gz
-    return nlp
-
-
-
-'''
-Tranforms the corpus into a list of list of words.
-:parameter
-    :param corpus: list or array
-    :param ngrams: num - number of ngrams
-:return
-    list of lists of ngrams
-'''
-def utils_text_preprocessing_lstwords(corpus, ngrams=1):
-    lst_corpus = []
-    for string in lst_corpus:
-        lst_words = string.split()
-        lst_grams = [' '.join(lst_words[i:i + ngrams]) for i in range(0, len(lst_words), ngrams)]
-        lst_corpus.append(lst_grams)
-    return lst_corpus
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-'''
-Fits the Word2Vec model from gensim.
-:parameter
-    :param corpus: list - list of lists of words
-    :param min_count: num  -
-    :param size: num - 
-    :param window: num - 
-    :param sg: num - 0 for CBOW, 1 for skipgrams
-:return
-    [model, dtf_vocabulary]: first item of list is the Word2Vec model, second is the dtf of the vocabulary
-'''
-def fit_w2v(corpus, ngrams=1, min_count=20, size=100, window=20, sg=0, plot="2d", figsize=(10,10)):
-    try:
-        ## preprocessing
-        lst_corpus = utils_text_preprocessing_lstwords(corpus, ngrams=1)
-        ## model
-        print("--- training ---")
-        model = gensim.models.word2vec.Word2Vec(lst_corpus, size=size, window=window, min_count=min_count, workers=4, sg=sg)
-        print("--- model fitted ---")
-        lst_vocabulary = list(model.vocab.keys())
-        dtf_vocabulary = pd.DataFrame(lst_vocabulary)
-        
-        ## plot
-        if plot == "2d":
-            labels = []
-            X = []
-            for word in model.vocab:
-                X.append( model[word] )
-                labels.append( word )
-            tsne_model = manifold.TSNE(perplexity=40, n_components=2, init='pca', n_iter=2500, random_state=23)
-            new_values = tsne_model.fit_transform( X )
-            x = []
-            y = []
-            for value in new_values:
-                x.append(value[0])
-                y.append(value[1])
-            plt.figure(figsize=figsize) 
-            for i in range(len(x)):
-                plt.scatter(x[i], y[i])
-                plt.annotate(labels[i], xy=(x[i], y[i]), xytext=(5, 2), textcoords='offset points', ha='right', va='bottom')
-            plt.show()
-        
-        if plot == "3d":
-            from mpl_toolkits.mplot3d import Axes3D
-            X = model[lst_vocabulary]
-            tsne_model = manifold.TSNE(perplexity=40, n_components=3, init='pca', n_iter=2500, random_state=23)
-            new_values = tsne_model.fit_transform(X)
-            dtf_tmp = pd.DataFrame(new_values, index=lst_vocabulary, columns=['x','y','z'])
-            fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(dtf_tmp['x'], dtf_tmp['y'], dtf_tmp['z'], alpha=0.5)
-            for word, row in dtf_tmp.iterrows():
-                x, y, z = row
-                ax.text(x, y, z, s=word, size=10, zorder=1)
-            plt.show()
-            
-        return [model, dtf_vocabulary]
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-   
-
-
-def plot_w2v(type="2d"):
-    return 0
-        
-        
-        
-    
-    
-
-
-'''
-Prints the closest words to the input word according to Word2Vec model and plot them in a 2d or 3d space.
-:parameter
-    :param model: model - Word2Vec
-    :param str_word: string - input word
-    :param top: num - top words
-    :param plot: string or None - "2d" or "3d"
-    :param figsize: tupla - pyplot figsize
-'''
-def predict_Word2Vec(model, str_word, top=20, plot="2d", figsize=(20,13)):
-    try:
-        ## predict (embedda)
-        word_vec = model[str_word]
-        
-        ## get context
-        lst_context = model.most_similar( str_word, topn=top )
-        
-        ## plot
-        if plot == "2d":
-            labels = []
-            X = []
-            for tupla in lst_context:
-                word = tupla[0]
-                X.append( model[word] )
-                labels.append( word )
-            tsne_model = manifold.TSNE(perplexity=40, n_components=2, init='pca', n_iter=2500, random_state=23)
-            new_values = tsne_model.fit_transform( X )
-            x = []
-            y = []
-            for value in new_values:
-                x.append(value[0])
-                y.append(value[1])
-            fig = plt.figure(figsize=figsize)
-            fig.suptitle("word: "+str_word, fontsize= 20)
-            for i in range(len(x)):
-                plt.scatter(x[i],y[i])
-                plt.annotate(labels[i], xy=(x[i], y[i]), xytext=(5, 2), textcoords='offset points', ha='right', va='bottom')
-            plt.show()
-        
-        if plot == "3d":
-            from mpl_toolkits.mplot3d import Axes3D
-            lst = []
-            for tupla in lst_context:
-                lst.append(tupla[0])
-            X = model[lst]
-            tsne_model = manifold.TSNE(perplexity=40, n_components=3, init='pca', n_iter=2500, random_state=23)
-            new_values = tsne_model.fit_transform(X)
-            dtf_tmp = pd.DataFrame(new_values, index=lst, columns=['x','y','z'])
-            fig = plt.figure(figsize=figsize)
-            fig.suptitle("word: "+str_word, fontsize= 20)
-            ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(dtf_tmp['x'], dtf_tmp['y'], dtf_tmp['z'], alpha=0.5)
-            for word, row in dtf_tmp.iterrows():
-                x, y, z = row
-                ax.text(x, y, z, s=word, size=10, zorder=1)
-            plt.show()
-
-        return {"word_vec":word_vec, "lst_context":lst_context}
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        print("maybe you are looking for ... ")
-        lst_match = [word for word in list(model.vocab.keys())
-                      if difflib.SequenceMatcher(isjunk=None, a=str_word, b=word).ratio()>0.7]
-        print(lst_match)
-
-
-
-'''
-'''
-def compute_distances_Word2Vec(model, lst_words, top=20, plot="2d", figsize=(20,13)):
-    ## embedda
-    lst_dics = []
-    for str_word in lst_words:
-        dic = predict_Word2Vec(model, str_word, top=top, plot=False)
-        lst_dics.append({"str_word":str_word, "word_vec":dic["word_vec"], "lst_context":dic["lst_context"]})
-        
-    ## put in a dtf
-    dtf = pd.DataFrame([ {'str_word':dic["str_word"], 'word_vec':dic["word_vec"], "lst_context":dic["lst_context"]} for dic in lst_dics ])
-    
-    return dtf
-
-
-
-'''
-Clusters a Word2Vec vocabolary with nltk Kmeans.
-:parameter
-    :param lst_lst_corpus: lst of lists (if given, trains a new Word2Vec)
-    :param modelW2V: word2vec model (if given uses the model already trained)
-    :param k: num - clusters
-    :param repeats: num - kmeans loop
-:return
-    dtf with words and clusters
-'''
-def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
-    try:
-        if (lst_lst_corpus is not None) and (modelW2V is None):
-            model = gensim.models.word2vec.Word2Vec(lst_lst_corpus, min_count=1)
-        elif (lst_lst_corpus is None) and (modelW2V is not None):
-            model = modelW2V
-        else:
-            return("--- pick one: model or corpus ---")
-            
-        X = model[model.vocab.keys()]
-        lst_vocabulary = list(model.vocab.keys())
-        kmeans_model = nltk.cluster.KMeansClusterer(k, distance=nltk.cluster.util.cosine_distance, repeats=50)
-        assigned_clusters = kmeans_model.cluster(X, assign_clusters=True)
-        dtf_cluster = pd.DataFrame({"word":word, "cluster":str(assigned_clusters[i])}  
-                                        for i,word in enumerate(lst_vocabulary))
-        dtf_cluster = dtf_cluster.sort_values(["cluster", "word"], ascending=[True,True])
-        print("--- ok done ---")
-        return dtf_cluster
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
- 
-    
-###############################################################################
-#                     TEXT CLASSIFICATION                                     #
+#                    TEXT MULTI-LABEL CLASSIFICATION                          #
 ###############################################################################
 '''
 '''
@@ -764,25 +419,138 @@ def encode_variable(dtf, column):
 
 
 '''
+Evaluates a model performance.
+:parameter
+    :param y_test: array
+    :param predicted: array
+    :param predicted_prob: array
+    :param figsize: tuple - plot setting
 '''
-def preprocess_text(X, y, X_extra):
-    return 0
-
-
-
-
-
-
-'''
-'''
-def features_selection():
-    model = smf.ols(num+' ~ '+cat, data=dtf).fit()
-    table = sm.stats.anova_lm(model)
-    p = table["PR(>F)"][0]
-    coeff, p = None, round(p, 3)
-    conclusion = "Correlated" if p < 0.05 else "Non-Correlated"
-    print("Anova F: the variables are", conclusion, "(p-value: "+str(p)+")")
+def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
+    classes = np.unique(y_test)
+    y_test_array = pd.get_dummies(y_test, drop_first=False).values
     
+    ## confusion matrix
+    cm = metrics.confusion_matrix(y_test, predicted)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
+    ax.set(xlabel="Pred", ylabel="True", xticklabels=classes, yticklabels=classes)
+    plt.yticks(rotation=0)
+    plt.title("Confusion matrix")
+    plt.show()
+    
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    ## roc
+    fpr, tpr, roc_auc = dict(), dict(), dict()
+    for i in range(len(classes)):
+        fpr[i], tpr[i], thresholds = metrics.roc_curve(y_test_array[:,i], predicted_prob[:,i])
+        roc_auc[i] = metrics.auc(fpr[i], tpr[i])
+        ax[0].plot(fpr[i], tpr[i], lw=3, label='ROC curve of {0} (area={1:0.2f})'''.format(classes[i], roc_auc[i]))
+    ax[0].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
+    ax[0].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")
+    ax[0].legend(loc="lower right")
+    ax[0].grid(True)
+    
+    ## precision-recall curve
+    precision, recall = dict(), dict()
+    for i in range(len(classes)):
+        precision[i], recall[i], thresholds = metrics.precision_recall_curve(y_test_array[:,i], predicted_prob[:,i])
+        ax[1].plot(recall[i], precision[i], lw=3, label='{}'.format(classes[i]))
+    ax[1].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
+    ax[1].legend(loc="best")
+    ax[1].grid(True)
+    plt.show()
+
+
+
+###############################################################################
+#                     BAG OF WORDS (VECTORIZER)                               #
+###############################################################################
+'''
+'''
+def utils_features_freq(dic_vocabulary, X, top=20, figsize=(10,5)):
+    lst_score = [(idx, word, X.sum(axis=0)[0,idx]) for word,idx in dic_vocabulary.items()]
+    lst_score = sorted(lst_score, key=lambda x: x[1], reverse=True)
+    dtf_score = pd.DataFrame(lst_score, columns=["idx","word","freq"]).sort_values(by="freq", ascending=False)
+    dtf_score[["word","freq"]].set_index("word").sort_values(by="freq").tail(top).plot(kind="barh", title="Top frequent features", figsize=figsize, legend=False).grid(axis='x')
+    return dtf_score.set_index("idx")
+
+
+
+'''
+Vectorizes the corpus (tfidf), fits the Bag of words model, plots the most frequent words.
+:parameter
+    :param corpus: list corpus
+    :param vectorizer: sklearn vectorizer object
+    :param vocabulary: list of words or dict, if None it creates from scratch, else it searches the words into corpus
+    :param top: num - plot the top frequent words
+:return
+    dict with X, vectorizer, dic_vocabulary, dtf_freq, lst_text2tokens
+'''
+def fit_bow(corpus, vectorizer=None, vocabulary=None, top=None, figsize=(10,5)):
+    ## vectorizer
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,1), vocabulary=vocabulary) if vectorizer is None else vectorizer
+    vectorizer.fit(corpus)
+    
+    ## sparse matrix
+    print("--- creating sparse matrix ---")
+    X = vectorizer.transform(corpus)
+    print("shape:", X.shape)
+    
+    ## vocabulary
+    print("--- creating vocabulary ---") if vocabulary is None else print("--- used vocabulary ---")
+    dic_vocabulary = vectorizer.vocabulary_   #{word:idx for idx, word in enumerate(vectorizer.get_feature_names())}
+    print("len:", len(dic_vocabulary))
+    
+    ## text2tokens
+    print("--- tokenization ---")
+    tokenizer = vectorizer.build_tokenizer()
+    preprocessor = vectorizer.build_preprocessor()
+    lst_text2tokens = []
+    for text in corpus:
+        lst_tokens = [dic_vocabulary[word] for word in tokenizer(preprocessor(text)) if word in dic_vocabulary]
+        lst_text2tokens.append(lst_tokens)
+    print("len:", len(lst_text2tokens))
+    
+    ## plot stats
+    dtf_freq = utils_features_freq(dic_vocabulary, X, top, figsize) if top is not None else None
+    
+    return {"X":X, "lst_text2tokens":lst_text2tokens,
+            "vectorizer":vectorizer, "dic_vocabulary":dic_vocabulary, 
+            "dtf_freq":dtf_freq}
+    
+
+
+'''
+'''
+def features_selection(X, y, vectorizer_fitted, top=None):
+    top_by_cat = int(top/len(np.unique(y))) if top is not None else top
+    feature_names = np.array(vectorizer_fitted.get_feature_names())
+    dic_words_selection = {}
+    for cat in np.unique(y):
+        chi2, p = feature_selection.chi2(X, y == cat)
+        index_sorted = np.argsort(p)
+        p_sorted = p[index_sorted]
+        features_sorted = feature_names[index_sorted]
+        selected_features = features_sorted[:sum(p_sorted<0.05)] if top is None else features_sorted[:top_by_cat]
+        dic_words_selection.update({cat:selected_features.tolist()})
+        print("# {}:".format(cat))
+        print("  . {}".format('\n  . '.join(selected_features[:5])))
+        print(" ")
+    dic_words_selection.update({"ALL":list(set([x for lst in dic_words_selection.values() for x in lst]))})
+    return dic_words_selection
+
+
+
+'''
+'''
+def sparse2dtf(X, dic_vocabulary, lst_words):
+    dtf_X = pd.DataFrame()
+    for word in lst_words:
+        idx = dic_vocabulary[word]
+        dtf_X["X_"+word] = np.reshape(X[:,idx].toarray(), newshape=(-1))
+    return dtf_X
+
 
 
 '''
@@ -798,17 +566,11 @@ Fits a sklearn classification model.
 :return
     fitted model and predictions
 '''
-def ml_text_classif(X_train, y_train, X_test, y_test, vectorizer=None, classifier=None): 
-    ## preprocessing
-    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
-    
+def ml_text_classif(X_train, y_train, X_test, y_test, preprocessing=False, vectorizer=None, classifier=None): 
     ## model
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
     classifier = naive_bayes.MultinomialNB() if classifier is None else classifier
-
-    ## pipeline
-    model = pipeline.Pipeline([
-        ("vectorizer", vectorizer),
-        ("model", classifier) ])
+    model = pipeline.Pipeline([("vectorizer",vectorizer), ("model",classifier)]) if preprocessing == True else classifier
     
     ## train/test
     model.fit(X_train, y_train)
@@ -828,45 +590,149 @@ def ml_text_classif(X_train, y_train, X_test, y_test, vectorizer=None, classifie
 
 
 
+###############################################################################
+#                            WORD2VEC (EMBEDDINGS)                            #
+###############################################################################
 '''
 '''
-def utils_text2seq(corpus, dic_vocabolary, vectorizer=None):
-    ## objects
-    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,1)) if vectorizer is None else vectorizer
-    tokenizer = vectorizer.build_tokenizer()
-    preprocessor = vectorizer.build_preprocessor()
-    
-    ## from text to tokens
-    X = []
-    for text in corpus:
-        lst_words = tokenizer(preprocessor(text))
-        lst_idx = [dic_vocabolary[word] for word in lst_words if word in dic_vocabolary]
-        X.append(lst_idx)
+def utils_preprocess_ngrams(corpus, ngrams=1, grams_join=" "):
+    lst_corpus = []
+    for string in corpus:
+        lst_words = string.split()
+        lst_grams = [grams_join.join(lst_words[i:i + ngrams]) for i in range(0, len(lst_words), ngrams)]
+        lst_corpus.append(lst_grams)
+    return lst_corpus
+
+
+
+'''
+Fits the Word2Vec model from gensim.
+:parameter
+    :param corpus: list - list of lists of words
+    :param min_count: num - ignores all words with total frequency lower than this
+    :param size: num - dimensionality of the vectors
+    :param window: num - ( x x x ... x  word  x ... x x x)
+    :param sg: num - 0 for CBOW, 1 for skipgrams
+    :param lst_bigrams_stopwords: list - ["of","with","without","and","or","the","a"]
+:return
+    lst_corpus and the nlp model
+'''
+def fit_w2v(corpus, ngrams=1, grams_join="_", min_count=1, size=300, window=20, sg=0, epochs=30, lst_bigrams_stopwords=[]):
+    ## preprocess
+    lst_corpus = utils_preprocess_ngrams(corpus, ngrams, grams_join)
+    ## detect bigrams
+    if ngrams == 1:
+        phrases = gensim.models.phrases.Phrases(lst_corpus, common_terms=lst_bigrams_stopwords)
+        bigram = gensim.models.phrases.Phraser(phrases)
+        lst_corpus = list(bigram[lst_corpus])
+    ## training
+    nlp = gensim.models.word2vec.Word2Vec(lst_corpus, size=size, window=window, min_count=min_count, sg=sg, iter=epochs)
+    return lst_corpus, nlp.wv
+   
+
+
+'''
+'''
+def plot_w2v(nlp=None, plot_type="2d", word=None, top=20, figsize=(10,5)):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    try:
+        if plot_type == "2d": 
+            labels, X, x, y = [], [], [], []
+            ## plot word
+            if type(word) is str:  
+                for tupla in nlp.most_similar(word, topn=top):
+                    X.append(nlp[tupla[0]])
+                    labels.append(tupla[0])
+             ## plot all
+            else:
+                for token in nlp.vocab:
+                    X.append(nlp[token])
+                    labels.append(token)
+            ## pca
+            pca = manifold.TSNE(perplexity=40, n_components=2, init='pca')
+            new_values = pca.fit_transform(X)
+            for value in new_values:
+                x.append(value[0])
+                y.append(value[1])
+            ## plot
+            fig = plt.figure(figsize=figsize)
+            fig.suptitle("Word: "+word, fontsize=12) if type(word) is str else fig.suptitle("Vocabulary", fontsize=12)
+            for i in range(len(x)):
+                plt.scatter(x[i], y[i], c="black")
+                plt.annotate(labels[i], xy=(x[i], y[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+            ## add center
+            if type(word) is str:
+                plt.scatter(x=0, y=0, c="red")
+                plt.annotate(word, xy=(0,0), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+            
+        elif plot_type == "3d":
+            from mpl_toolkits.mplot3d import Axes3D
+            ## plot word
+            if type(word) is str: 
+                lst_words = [tupla[0] for tupla in nlp.most_similar(word, topn=top)]
+            ## plot all
+            else:
+                lst_words = list(nlp.vocab.keys())
+            X = nlp[lst_words]
+            ## pca
+            pca = manifold.TSNE(perplexity=40, n_components=3, init='pca')
+            new_values = pca.fit_transform(X)
+            dtf_tmp = pd.DataFrame(new_values, index=lst_words, columns=['x','y','z'])
+            ## plot
+            fig = plt.figure(figsize=figsize)
+            fig.suptitle("Word: "+word, fontsize=12) if type(word) is str else fig.suptitle("Vocabulary", fontsize=12)
+            ax = fig.add_subplot(111, projection='3d')
+            ax.scatter(dtf_tmp['x'], dtf_tmp['y'], dtf_tmp['z'], c="black")
+            for label, row in dtf_tmp.iterrows():
+                x, y, z = row
+                ax.text(x, y, z, s=label)
+            ## add center
+            if type(word) is str:
+                ax.scatter(0, 0, 0, c="red")
+                ax.text(0, 0, 0, s=word)
+            
+        plt.show()
         
-    print("from: ", X[0], " | len:", len(X[0].split()))
-    print("to: ", X[0], " | len:", len(X[0]))
-    print("check: ", X[0].split()[0], " -- idx in vocabolary -->", dic_vocabolary[X[0].split()[0]])
+    except Exception as e:
+        print("--- got error ---")
+        print(e)
+        if type(word) is str:
+            print("maybe you are looking for ... ")
+            print([k for k in list(nlp.vocab.keys()) if difflib.SequenceMatcher(isjunk=None, a=word, b=k).ratio()>0.7])
     
-    ## from tokens to sequences of same length
-    maxlen = np.max([len(text.split()) for text in corpus])
-    X = preprocessing.sequence.pad_sequences(X, maxlen=maxlen, value=len(vectorizer.get_feature_names()))
-    print("shape:", X.shape)
-    return X
-
 
 
 '''
-Embeds a vocabolary of unigrams with spacy w2v
+Embeds a vocabulary of unigrams with gensim w2v.
 '''
-def vocabolary_embeddings(nlp, dic_vocabolary, dim_space=300):
-    embeddings = np.zeros(len(dic_vocabolary), dim_space)
-    for word,idx in dic_vocabolary.items():
+def vocabulary_embeddings(dic_vocabulary, nlp=None, dim_space=300):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    embeddings = np.zeros((len(dic_vocabulary)+1, dim_space))
+    for word,idx in dic_vocabulary.items():
         try:
-            embeddings[idx] =  nlp.vocab[word].vector
+            embeddings[idx] =  nlp[word]
         except:
             pass
     print("shape: ", embeddings.shape)
     return embeddings
+
+
+    
+'''
+Transforms the corpus into an array of sequences of idx with same length.
+    :param
+'''
+def text2seq(corpus, vectorizer=None, vocabulary=None, maxlen=None, top=None, figsize=(10,5)):
+    ## fit BoW with fixed vocabulary
+    dic = fit_bow(corpus, vectorizer=None, vocabulary=vocabulary, top=top, figsize=figsize)
+    lst_text2tokens, dic_vocabulary = dic["lst_text2tokens"], dic["dic_vocabulary"]
+    
+    ## create sequence with keras preprocessing
+    print("--- padding to sequence ---")
+    maxlen = np.max([len(text.split()) for text in corpus]) if maxlen is None else maxlen
+    X = kprocessing.sequence.pad_sequences(lst_text2tokens, maxlen=maxlen, value=len(dic_vocabulary))
+    print("shape:", X.shape)
+    return X, dic_vocabulary
 
 
 
@@ -883,7 +749,11 @@ Fits a keras classification model.
 :return
     model fitted and predictions
 '''
-def dl_text_classif(dic_y_mapping, model, embeddings, X_train, y_train, X_test, y_test, epochs=10, batch_size=256):
+def dl_text_classif(dic_y_mapping, embeddings, X_train, y_train, X_test, y_test, model=None, epochs=10, batch_size=256):
+    ## encode y
+    inverse_dic = {v:k for k,v in dic_y_mapping.items()}
+    y_train = [inverse_dic[y] for y in y_train]   #y_test = [dic_y_mapping[y] for y in y_test]
+    
     ## model
     if model is None:
         ### params
@@ -902,6 +772,7 @@ def dl_text_classif(dic_y_mapping, model, embeddings, X_train, y_train, X_test, 
         model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     
     ## train
+    print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     fig, ax = plt.subplots()
     ax.plot(training.history['loss'], label='loss')
@@ -909,16 +780,11 @@ def dl_text_classif(dic_y_mapping, model, embeddings, X_train, y_train, X_test, 
     plt.xlabel('epoch')
     plt.legend()
     plt.show()
-    print(training.model.summary())
     
     ## test
     predicted_prob = model.predict(X_test)
-    predicted = [dic_y_mapping[np.argmax(predicted_prob)] for pred in predicted_prob]
-    y_test = [dic_y_mapping[y] for y in y_test]
-    
-    ## check
-    print("True:", y_test[0])
-    print("Pred:", predicted[0], np.max(predicted_prob[0]))
+    predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob]
+    print("Check --> True:", y_test[0], "Pred:", predicted[0], "Prob:", np.max(predicted_prob[0]))
     
     ## kpi
     accuracy = metrics.accuracy_score(y_test, predicted)
@@ -929,60 +795,81 @@ def dl_text_classif(dic_y_mapping, model, embeddings, X_train, y_train, X_test, 
 
 
 
+###############################################################################
+#                        WORD2VEC CLUSTERING                                  #
+###############################################################################
+
+
+
+
 '''
-Evaluates a model performance.
+'''
+def clustering_w2v(text, lst_clusters=None, nlp=None):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    
+    ## find clusters
+    if lst_clusters is not None:
+        
+    
+    
+        
+    ## text embeddind
+    lst_word_embeddings = [nlp[word] for word in text.split()]
+    vec_text = np.mean(lst_word_embeddings)
+        
+        
+        
+    
+    ## clustering
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+Clusters a Word2Vec vocabulary with nltk Kmeans.
 :parameter
-    :param y_test: array
-    :param predicted: array
-    :param predicted_prob: array
-    :param figsize: tuple - plot setting
+    :param lst_lst_corpus: lst of lists (if given, trains a new Word2Vec)
+    :param modelW2V: word2vec model (if given uses the model already trained)
+    :param k: num - clusters
+    :param repeats: num - kmeans loop
+:return
+    dtf with words and clusters
 '''
-def evaluate_text_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
-    classes = np.unique(y_test)
-    y_test_array = pd.get_dummies(y_test, drop_first=False).values
-         
-    ## confusion matrix
-    cm = metrics.confusion_matrix(y_test, predicted)
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
-    ax.set(xlabel="Pred", ylabel="True", xticklabels=classes, yticklabels=classes)
-    plt.yticks(rotation=0)
-    plt.title("Confusion matrix")
-    plt.show()
-    
-    ## roc
-    fpr = dict()
-    tpr = dict()
-    roc_auc = dict()
-    plt.figure(figsize=figsize)
-    for i in range(len(classes)):
-        fpr[i], tpr[i], thresholds = metrics.roc_curve(y_test_array[:,i], predicted_prob[:,i])
-        roc_auc[i] = metrics.auc(fpr[i], tpr[i])
-        plt.plot(fpr[i], tpr[i], lw=3, label='ROC curve of {0} (area={1:0.2f})'''.format(classes[i], roc_auc[i]))
-    plt.plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate (Recall)')
-    plt.title('Receiver operating characteristic')
-    plt.legend(loc="lower right")
-    plt.grid(True)
-    plt.show()
-    
-    ## precision-recall curve
-    precision = dict()
-    recall = dict()
-    plt.figure(figsize=figsize)
-    for i in range(len(classes)):
-        precision[i], recall[i], thresholds = metrics.precision_recall_curve(y_test_array[:,i], predicted_prob[:,i])
-        plt.plot(recall[i], precision[i], lw=3, label='{}'.format(classes[i]))
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall curve')
-    plt.legend(loc="best")
-    plt.grid(True)
-    plt.show()
-    
+def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
+    if (lst_lst_corpus is not None) and (modelW2V is None):
+        model = gensim.models.word2vec.Word2Vec(lst_lst_corpus, min_count=1)
+    elif (lst_lst_corpus is None) and (modelW2V is not None):
+        model = modelW2V
+    else:
+        return("--- pick one: model or corpus ---")
+        
+    X = model[model.vocab.keys()]
+    lst_vocabulary = list(model.vocab.keys())
+    kmeans_model = nltk.cluster.KMeansClusterer(k, distance=nltk.cluster.util.cosine_distance, repeats=50)
+    assigned_clusters = kmeans_model.cluster(X, assign_clusters=True)
+    dtf_cluster = pd.DataFrame({"word":word, "cluster":str(assigned_clusters[i])}  
+                                    for i,word in enumerate(lst_vocabulary))
+    dtf_cluster = dtf_cluster.sort_values(["cluster", "word"], ascending=[True,True])
+    print("--- ok done ---")
+    return dtf_cluster
+
 
 
 ###############################################################################
