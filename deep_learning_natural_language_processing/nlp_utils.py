@@ -8,7 +8,7 @@ import langdetect
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
-from sklearn import preprocessing, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline
+from sklearn import preprocessing, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline, decomposition
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 import wordcloud
 import gensim
@@ -168,10 +168,20 @@ Adds a column of preprocessed text.
 :return
     dtf: input dataframe with two new columns
 '''
-def add_preprocessed_text(dtf, column, lst_regex=None, flg_stemm=False, flg_lemm=True, lst_stopwords=None):
+def add_preprocessed_text(dtf, column, lst_regex=None, flg_stemm=False, flg_lemm=True, lst_stopwords=None, remove_na=True):
+    ## apply preprocess
     dtf = dtf[ pd.notnull(dtf[column]) ]
     dtf[column+"_clean"] = dtf[column].apply(lambda x: utils_preprocess_text(x, lst_regex, flg_stemm, flg_lemm, lst_stopwords))
-    return dtf
+    
+    ## residuals
+    dtf["check"] = dtf[column+"_clean"].apply(lambda x: len(x))
+    if dtf["check"].min() == 0:
+        print("--- found NAs ---")
+        print(dtf[[column,column+"_clean"]][dtf["check"]==0].head())
+        if remove_na is True:
+            dtf = dtf[dtf["check"]>0] 
+            
+    return dtf.drop("check", axis=1)
 
 
 
@@ -289,6 +299,7 @@ Applies the spacy NER model.
 '''
 def add_ner_spacy(dtf, column, ner=None, tag_type="all", unique=False, create_features=True):
     ## ner
+    print("--- tagging ---")
     ner = spacy.load("en_core_web_lg") if ner is None else ner
     if tag_type == "all":
         if unique == True:
@@ -302,11 +313,12 @@ def add_ner_spacy(dtf, column, ner=None, tag_type="all", unique=False, create_fe
             dtf["tags"] = dtf[column].apply(lambda x: [(word.text, word.label_) for word in ner(x).ents if word.label_ in tag_type] )
     
     ## count
+    print("--- counting tags ---")
     dtf["tags"] = dtf["tags"].apply(lambda x: utils_lst_count(x, top=None))
     
     ## extract features
     if create_features == True:
-        print("--- tagging done ---")
+        print("--- creating features ---")
         ### features set
         tags_set = []
         for lst in dtf["tags"].tolist():
@@ -798,77 +810,107 @@ def dl_text_classif(dic_y_mapping, embeddings, X_train, y_train, X_test, y_test,
 ###############################################################################
 #                        WORD2VEC CLUSTERING                                  #
 ###############################################################################
-
-
-
-
-'''
-'''
-def clustering_w2v(text, lst_clusters=None, nlp=None):
-    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    
-    ## find clusters
-    if lst_clusters is not None:
-        
-    
-    
-        
-    ## text embeddind
-    lst_word_embeddings = [nlp[word] for word in text.split()]
-    vec_text = np.mean(lst_word_embeddings)
-        
-        
-        
-    
-    ## clustering
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 '''
 Clusters a Word2Vec vocabulary with nltk Kmeans.
 :parameter
-    :param lst_lst_corpus: lst of lists (if given, trains a new Word2Vec)
     :param modelW2V: word2vec model (if given uses the model already trained)
     :param k: num - clusters
-    :param repeats: num - kmeans loop
 :return
     dtf with words and clusters
 '''
-def clustering_words_Word2Vec(lst_lst_corpus, modelW2V, k=3, repeats=50):
-    if (lst_lst_corpus is not None) and (modelW2V is None):
-        model = gensim.models.word2vec.Word2Vec(lst_lst_corpus, min_count=1)
-    elif (lst_lst_corpus is None) and (modelW2V is not None):
-        model = modelW2V
-    else:
-        return("--- pick one: model or corpus ---")
-        
-    X = model[model.vocab.keys()]
-    lst_vocabulary = list(model.vocab.keys())
+def plot_word_clustering(nlp=None, k=3):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    X = nlp[nlp.vocab.keys()]    
     kmeans_model = nltk.cluster.KMeansClusterer(k, distance=nltk.cluster.util.cosine_distance, repeats=50)
-    assigned_clusters = kmeans_model.cluster(X, assign_clusters=True)
-    dtf_cluster = pd.DataFrame({"word":word, "cluster":str(assigned_clusters[i])}  
-                                    for i,word in enumerate(lst_vocabulary))
+    clusters = kmeans_model.cluster(X, assign_clusters=True)
+    dic_clusters = {word:clusters[i] for i,word in enumerate(list(nlp.vocab.keys()))}
+    dtf_cluster = pd.DataFrame({"word":word, "cluster":str(clusters[i])} for i,word in enumerate(list(nlp.vocab.keys())))
     dtf_cluster = dtf_cluster.sort_values(["cluster", "word"], ascending=[True,True])
-    print("--- ok done ---")
-    return dtf_cluster
+    return 0
+
+
+
+'''
+Creates a feature matrix (num_docs x vector_size)
+'''
+def utils_text_embeddings(corpus, nlp, value_na=0):
+    lst_X = []
+    for text in corpus:
+        lst_word_vecs = [nlp[word] if word in nlp.vocab.keys() else [value_na]*nlp.vector_size 
+                         for word in text.split()]
+        lst_X.append(np.mean( np.array(lst_word_vecs), axis=0 )) 
+    X = np.stack(lst_X, axis=0)
+    return X
+
+
+
+'''
+'''
+def fit_pca_w2v(corpus, nlp):
+    ## corpus embedding
+    X = utils_text_embeddings(corpus, nlp, value_na=0)
+    print("X shape:", X.shape)
+    ## fit pca
+    model = decomposition.PCA(n_components=nlp.vector_size)
+    pca = model.fit_transform(X)
+    print("pca shape:", pca.shape)
+    return pca
+
+
+
+'''
+'''
+def similarity_w2v(a, b, nlp=None):
+    if type(a) is str and type(b) is str:
+        cosine_sim = nlp.similarity(a,b)
+    else:
+        a = a.reshape(1,-1) if len(a.shape) == 1 else a
+        b = b.reshape(1,-1) if len(b.shape) == 1 else b
+        cosine_sim = metrics.pairwise.cosine_similarity(a,b)[0][0]
+       #cosine_sim = np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
+    return cosine_sim
+
+
+
+'''
+Clustering of text to specifi classes (Unsupervised Classification by similarity).
+:parameter
+    :param text: array of text to predict
+    :param dic_clusters: dic of lists of strings - {'finance':['market','bonds','equity'], 'esg':['environment','green_economy','sustainability']}
+:return
+    dic_clusters_sim = {'finance':0.7, 'esg':0.5}
+'''
+def predict_clusters_w2v(corpus, dic_clusters, nlp=None, pca=None):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    print("--- embedding X and y ---")
+    
+    ## clusters embedding
+    dic_y, cluster_names = {}, []
+    for name, lst_keywords in dic_clusters.items():
+        lst_word_vecs = [nlp[word] if word in nlp.vocab.keys() else [0]*nlp.vector_size 
+                         for word in lst_keywords]
+        dic_y.update({name:np.mean( np.array(lst_word_vecs), axis=0)})
+        cluster_names.append(name)
+        print(name, "shape:", dic_y[name].shape)
+    
+    ## text embedding
+    X = utils_text_embeddings(corpus, nlp, value_na=0)
+    print("X shape:", X.shape)
+    
+    ## remove pca
+    if pca is not None:
+        print("--- removing general component ---")
+        ### from y
+        for name, y in dic_y.items():
+            dic_y[name] = y - y.dot(pca.transpose()).dot(pca)
+        ### from X
+        X = X - X.dot(pca.transpose()).dot(pca)
+        
+    ## compute similarity
+    print("--- computing similarity ---")
+    predicted_prob = np.array([metrics.pairwise.cosine_similarity(X,y.reshape(1,-1)).T.tolist()[0] for y in dic_y.values()]).T
+    predicted = [cluster_names[np.argmax(pred)] for pred in predicted_prob]
+    return predicted_prob, predicted
 
 
 
@@ -943,9 +985,8 @@ def utils_strings_similarity(a, b, algo="cosine"):
         vectorizer = feature_extraction.text.CountVectorizer(lst_txt)
         matrix = vectorizer.fit_transform(lst_txt).toarray()
         lst_vectors = [vec for vec in matrix]
-        cosine_matrix = metrics.pairwise.cosine_similarity(lst_vectors)
-        cosine_sim_diag = cosine_matrix[0,1]
-        return cosine_sim_diag
+        cosine_sim = metrics.pairwise.cosine_similarity(lst_vectors)[0,1]
+        return cosine_sim
     
     elif algo == "gestalt": 
         return difflib.SequenceMatcher(isjunk=None, a=a, b=b).ratio()
