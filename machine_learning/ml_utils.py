@@ -31,13 +31,12 @@ Counts Nas for every column of a dataframe.
     :param dtf: dataframe - input data
     :param plot: str or None - "freq", "map" 
     :param top: num - plot setting
-    :param fontsize: num - plot setting
 '''
-def check_Nas(dtf, plot="freq", top=20, fontsize=10, figsize=(20,10)):
+def check_Nas(dtf, plot="map", top=20):
     try:
         ## print
         len_dtf = len(dtf)
-        print("len dtf: "+str(len_dtf))
+        print("shape:", dtf.shape)
         for col in dtf.columns:
             print(col+" --> Nas: "+str(dtf[col].isna().sum())+" ("+str(np.round(dtf[col].isna().mean(), 3)*100)+"%)")
             if dtf[col].nunique() == len_dtf:
@@ -50,13 +49,12 @@ def check_Nas(dtf, plot="freq", top=20, fontsize=10, figsize=(20,10)):
             for i in ax.patches:
                 totals.append(i.get_width())
                 for i in ax.patches:
-                    ax.text(i.get_width()+.3, i.get_y()+.20, str(i.get_width()), fontsize=fontsize, color='black')
+                    ax.text(i.get_width()+.3, i.get_y()+.20, str(i.get_width()), fontsize=10, color='black')
             plt.title("NAs count")
             plt.show()
         
         elif plot == "map":
-            fig, ax = plt.subplots(figsize=figsize)
-            sns.heatmap(dtf.isnull(), cbar=False, ax=ax).set_title('Missings Map')
+            sns.heatmap(dtf.isnull(), cbar=False).set_title('Missings Map')
         
     except Exception as e:
         print("--- got error ---")
@@ -92,6 +90,7 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile
                 total= sum(totals)
                 for i in ax.patches:
                     ax.text(i.get_width()+.3, i.get_y()+.20, str(round((i.get_width()/total)*100, 2))+'%', fontsize=10, color='black')
+            ax.grid(axis="x")
             plt.suptitle(x, fontsize=20)
             plt.show()
             
@@ -610,8 +609,7 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
         
         ## 1.missing
         ### check
-        print(" ")
-        print("1. check missing...")
+        print("--- check missing ---")
         if dtf.isna().sum().sum() != 0:
             cols_with_missings = []
             for col in dtf.columns.to_list():
@@ -638,8 +636,7 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
                 
         ## 2.categorical data
         ### check
-        print(" ")
-        print("2. check categorical data...")
+        print("--- check categorical data ---")
         cols_with_categorical = []
         for col in dtf.drop(pk, axis=1).columns.to_list():
             if dtf[col].dtype == "O":
@@ -656,25 +653,23 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
             print("   OK: No categorical")
         
         ## 3.split train/test
-        print(" ")
-        print("3. split train/test...")
+        print("--- split train/test ---")
         X = dtf.drop([pk, y], axis=1).values
         Y = dtf[y].values
         if split is not None:
             X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, random_state=123, shuffle=True)
             print("X_train shape:", X_train.shape, " | X_test shape:", X_test.shape)
             if task=="classification":
-                print("1s in y_train:", round(sum(Y_train)/Y_train.shape[0]), " | 1s in y_test:", round(sum(Y_test)/Y_test.shape[0]))
+                print("1s in y_train:", round(sum(Y_train)/Y_train.shape[0],2), " | 1s in y_test:", round(sum(Y_test)/Y_test.shape[0],2))
             print(X_train.shape[1], "features:", dtf.drop([pk, y], axis=1).columns.to_list())
         else:
             print("   OK: skipped this step")
             X_train = X
             Y_train = Y
-            X_test = Y_test = 0
+            X_test, Y_test = None, None
         
         ## 4.scaling
-        print(" ")
-        print("4. scaling...")
+        print("--- scaling ---")
         if scale is not None:
             if scale == "standard":
                 scalerX = preprocessing.StandardScaler()
@@ -685,7 +680,7 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
             else:
                 print("select a scaler: 'standard' or 'minmax'")
             X_train = scalerX.fit_transform(X_train)
-            if X_test != 0:
+            if X_test is not None:
                 X_test = scalerX.transform(X_test)
             if task == "regression":
                 Y_train = scalerY.fit_transform(Y_train)
@@ -694,10 +689,10 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
             print("   OK: scaled all features")
         else:
             print("   OK: skipped this step")
-            scalerX = scalerY = 0
+            scalerX, scalerY = 0, 0
         
-        return {"dtf":dtf, "X_names":dtf.drop([pk, y], axis=1).columns.to_list(), 
-                "X":(X_train, X_test), "Y":(Y_train, Y_test), "scaler":[scalerX, scalerY]}
+        return {"dtf":dtf, "X_names":dtf.drop([pk,y], axis=1).columns.to_list(), 
+                "X":(X_train, X_test), "Y":(Y_train, Y_test), "scaler":(scalerX, scalerY)}
     
     except Exception as e:
         print("--- got error ---")
@@ -709,50 +704,8 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
 #                   MODEL DESIGN & TESTING                                    #
 ###############################################################################
 '''
-Tunes the hyperparameters of a sklearn model.
-:parameter
-    :param model_base: model object - model istance to tune (before fitting)
-    :param param_dic: dict - dictionary of parameters to tune
-    :param X_train: array - feature matrix
-    :param y_train: array - y vector
-    :param scoring: string - evaluation metrics like "roc_auc"
-    :param searchtype: string - "RandomSearch" or "GridSearch"
-:return
-    model with hyperparams tuned
 '''
-def tuning_model(model_base, param_dic, X_train, Y_train, scoring="roc_auc", searchtype="RandomSearch", n_iter=1000, cv=10):
-    try:
-        ## Search
-        print(searchtype.upper())
-        if searchtype == "RandomSearch":
-            random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, Y_train)
-            print("Best Model parameters:", random_search.best_params_)
-            print("Best Model mean "+scoring+":", random_search.best_score_)
-            model = random_search.best_estimator_
-            
-        elif searchtype == "GridSearch":
-            grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, Y_train)
-            print("Best Model parameters:", grid_search.best_params_)
-            print("Best Model mean "+scoring+":", grid_search.best_score_)
-            model = grid_search.best_estimator_
-        
-        ## K fold validation
-        print("")
-        Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=Y_train, cv=cv, scoring=scoring)
-        Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=Y_train, cv=cv, scoring=scoring)
-        print("K-FOLD VALIDATION")
-        print(scoring+" mean: from", Kfold_base.mean(), " ----> ", Kfold_model.mean() )
-        return model
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
-        
-        
-'''
-'''
-def kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
+def utils_kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
     cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
     tprs, aucs = [], []
     mean_fpr = np.linspace(0,1,100)
@@ -774,11 +727,53 @@ def kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
     plt.plot(mean_fpr, mean_tpr, color='blue', label=r'Mean ROC (AUC = %0.2f )' % (mean_auc), lw=2, alpha=1)
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title('ROC')
+    plt.title('K-FOLD VALIDATION')
     plt.legend(loc="lower right")
     plt.show()
+    
+    
 
-
+'''
+Tunes the hyperparameters of a sklearn model.
+:parameter
+    :param model_base: model object - model istance to tune (before fitting)
+    :param param_dic: dict - dictionary of parameters to tune
+    :param X_train: array - feature matrix
+    :param y_train: array - y vector
+    :param scoring: string - "roc_auc" or "accuracy"
+    :param searchtype: string - "RandomSearch" or "GridSearch"
+:return
+    model with hyperparams tuned
+'''
+def model_tuning(X_train, Y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
+    ## params
+    model_base = ensemble.GradientBoostingClassifier() if model_base is None else model_base
+    param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
+            
+    ## Search
+    print(searchtype.upper())
+    if searchtype == "RandomSearch":
+        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, Y_train)
+        print("Best Model parameters:", random_search.best_params_)
+        print("Best Model mean "+scoring+":", random_search.best_score_)
+        model = random_search.best_estimator_
+        
+    elif searchtype == "GridSearch":
+        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, Y_train)
+        print("Best Model parameters:", grid_search.best_params_)
+        print("Best Model mean "+scoring+":", grid_search.best_score_)
+        model = grid_search.best_estimator_
+    
+    ## K fold validation
+    print("")
+    Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=Y_train, cv=cv, scoring=scoring)
+    Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=Y_train, cv=cv, scoring=scoring)
+    print("K-FOLD VALIDATION")
+    print(scoring+" mean: from", Kfold_base.mean(), " ----> ", Kfold_model.mean())
+    utils_kfold_validation(model, X_train, Y_train, cv=cv, figsize=figsize)
+    return model
+        
+        
         
 '''
 Fits a sklearn classification model.
@@ -862,40 +857,28 @@ def evaluate_model(Y_test, predicted, predicted_prob, task="classification", fig
     try:
         if task == "classification":
             classes = (np.unique(Y_test)[0], np.unique(Y_test)[1])
+            fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
             
             ## confusion matrix
             cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
-            fig, ax = plt.subplots(figsize=figsize)
-            sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
-            ax.set(xlabel="Pred", ylabel="True")
-            plt.yticks(rotation=0)
-            plt.title("Confusion matrix")
-            plt.show()
+            sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
+            ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
+            ax[0].set_yticklabels(labels=classes, rotation=0)
             
             ## roc
             fpr, tpr, thresholds = metrics.roc_curve(Y_test, predicted_prob)
-            roc_auc = metrics.auc(fpr, tpr)
-            plt.figure(figsize=figsize)
-            plt.plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
-            plt.plot([0, 1], [0, 1], color='navy', lw=3, linestyle='--')
-            plt.xlim([0.0, 1.0])
-            plt.ylim([0.0, 1.05])
-            plt.xlabel('False Positive Rate')
-            plt.ylabel('True Positive Rate (Recall)')
-            plt.title('Receiver operating characteristic')
-            plt.legend(loc="lower right")
-            plt.grid(True)
-            plt.show()
+            roc_auc = metrics.auc(fpr, tpr)     
+            ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
+            ax[1].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
+            ax[1].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
+            ax[1].legend(loc="lower right")
+            ax[1].grid(True)
             
             ## precision-recall curve
             precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
-            plt.figure(figsize=figsize)
-            plt.plot(recall, precision, lw=3)
-            plt.xlabel('Recall')
-            plt.ylabel('Precision')
-            plt.title('Precision-Recall curve')
-            plt.grid(True)
-            plt.show()
+            ax[2].plot(recall, precision, lw=3)
+            ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
+            ax[2].grid(True)
             
         elif task == "regression":
             from statsmodels.graphics.api import abline_plot
@@ -904,7 +887,8 @@ def evaluate_model(Y_test, predicted, predicted_prob, task="classification", fig
             abline_plot(intercept=0, slope=1, horiz=None, vert=None, model_results=None, ax=ax)
             ax.set_ylabel('Y True')
             ax.set_xlabel('Y Predicted')
-            plt.show()
+        
+        plt.show()
             
     except Exception as e:
         print("--- got error ---")
@@ -942,41 +926,6 @@ def features_importance(X_train, X_names, Y_train, model, figsize=(10,10)):
     plt.grid(axis='both')
     plt.show()
     return dtf_importances.reset_index()
-
-
-
-'''
-Plots a 2-features classification model result.
-:parameter
-    :param X_test: array
-    :param X_names: list
-    :param Y_test: array
-    :param model: model istance (after fitting)
-    :param colors: tuple - plot setting
-    :param figsize: tuple - plot setting
-'''
-def plot2D_classification(X_test, X_names, Y_test, model, colors={0:"black",1:"green"}, figsize=(10,10)):
-    from matplotlib.colors import ListedColormap
-    X_set, y_set = X_test, Y_test
-    X1, X2 = np.meshgrid(np.arange(start=X_set[:, 0].min() - 1, 
-                                   stop= X_set[:, 0].max() + 1, 
-                                   step=0.01),
-                         np.arange(start=X_set[:, 1].min() - 1, 
-                                   stop=X_set[:, 1].max() + 1, 
-                                   step=0.01)
-                         )
-    plt.figure(figsize=figsize)
-    plt.contourf(X1, X2, model.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape), 
-                 alpha=0.75, cmap=ListedColormap(list(colors.values())))
-    plt.xlim(X1.min(), X1.max())
-    plt.ylim(X2.min(), X2.max())
-    for i,j in enumerate(np.unique(y_set)):
-        plt.scatter(X_set[y_set == j, 0], X_set[y_set == j, 1], c=colors[j], label=j)    
-    plt.title('Classification Model')
-    plt.xlabel(X_names[0])
-    plt.ylabel(X_names[1])
-    plt.legend()
-    plt.show()
 
 
 
@@ -1019,34 +968,54 @@ Decomposes the feture matrix of train and test.
 :return
     dict with new train and test, and the model 
 '''
-def dimensionality_reduction(X_train, X_test, algo="PCA", Y_train=None, n_features=2):
-    if algo == "PCA":
-        dimred_model = decomposition.PCA(n_components=n_features)
-        X_train_dimred = dimred_model.fit_transform(X_train)
-        X_test_dimred = dimred_model.transform(X_test)
-    elif algo == "KernelPCA":
-        dimred_model = decomposition.KernelPCA(n_components=n_features, kernel='rbf')
-        X_train_dimred = dimred_model.fit_transform(X_train)
-        X_test_dimred = dimred_model.transform(X_test)
-    elif algo == "SVD":
-        dimred_model = decomposition.TruncatedSVD(n_components=n_features)
-        X_train_dimred = dimred_model.fit_transform(X_train)
-        X_test_dimred = dimred_model.transform(X_test)
-    elif algo == "LDA":
-        if Y_train is not None:
-            dimred_model = discriminant_analysis.LinearDiscriminantAnalysis(n_components=n_features)
-            X_train_dimred = dimred_model.fit_transform(X_train, Y_train)
-            X_test_dimred = dimred_model.transform(X_test)
-        else:
-            print("you need to give Y_train, now it's None")
-            X_train_dimred = X_test_dimred = dimred_model = 0
+def dimensionality_reduction(X_train, X_test, Y_train=None, n_features=2):
+    if Y_train is None:
+        print("--- unsupervised ---")
+        model = decomposition.PCA(n_components=n_features)
+        X_train = model.fit_transform(X_train)
     else:
-        print("choose one algo: 'PCA', 'KernelPCA', 'SVD', 'LDA'")
-        X_train_dimred = X_test_dimred = dimred_model = 0
-        
-    return {"X":(X_train_dimred, X_test_dimred), "model":dimred_model}
+        print("--- supervised ---")
+        model = discriminant_analysis.LinearDiscriminantAnalysis(n_components=n_features)
+        X_train = model.fit_transform(X_train, Y_train)
+    X_test = model.transform(X_test)
+    return {"X":(X_train, X_test), "model":model}
+
+
+
+'''
+Plots a 2-features classification model result.
+:parameter
+    :param X_test: array
+    :param X_names: list
+    :param Y_test: array
+    :param model: model istance (after fitting)
+    :param colors: tuple - plot setting
+    :param figsize: tuple - plot setting
+'''
+def plot2D_classification(X_test, X_names, Y_test, model, colors={0:"black",1:"green"}, figsize=(10,10)):
+    from matplotlib.colors import ListedColormap
+    X_set, y_set = X_test, Y_test
+    X1, X2 = np.meshgrid(np.arange(start=X_set[:, 0].min() - 1, 
+                                   stop= X_set[:, 0].max() + 1, 
+                                   step=0.01),
+                         np.arange(start=X_set[:, 1].min() - 1, 
+                                   stop=X_set[:, 1].max() + 1, 
+                                   step=0.01)
+                         )
+    plt.figure(figsize=figsize)
+    plt.contourf(X1, X2, model.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape), 
+                 alpha=0.75, cmap=ListedColormap(list(colors.values())))
+    plt.xlim(X1.min(), X1.max())
+    plt.ylim(X2.min(), X2.max())
+    for i,j in enumerate(np.unique(y_set)):
+        plt.scatter(X_set[y_set == j, 0], X_set[y_set == j, 1], c=colors[j], label=j)    
+    plt.title('Classification Model')
+    plt.xlabel(X_names[0])
+    plt.ylabel(X_names[1])
+    plt.legend()
+    plt.show()
     
-    
+
 
 '''
 Clusters data with k-means.
