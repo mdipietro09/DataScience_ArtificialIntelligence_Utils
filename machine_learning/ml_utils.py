@@ -104,7 +104,15 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile
             breaks = np.quantile(variable, q=np.linspace(0, 1, 11))
             variable = variable[ (variable > breaks[quantile_breaks[0]]) & (variable < breaks[quantile_breaks[1]]) ]
             sns.distplot(variable, hist=True, kde=True, kde_kws={"shade": True}, ax=ax[0])
+            des = dtf[x].describe()
+            ax[0].axvline(des["25%"], ls='--')
+            ax[0].axvline(des["mean"], ls='--')
+            ax[0].axvline(des["75%"], ls='--')
             ax[0].grid(True)
+            des = round(des, 2).apply(lambda x: str(x))
+            box = '\n'.join(("min: "+des["min"], "25%: "+des["25%"], "mean: "+des["mean"], "75%: "+des["75%"], "max: "+des["max"]))
+            ax[0].text(0.95, 0.95, box, transform=ax[0].transAxes, fontsize=10, va='top', ha="right", 
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=1))
             ### boxplot 
             if box_logscale == True:
                 ax[1].title.set_text('outliers (log scale)')
@@ -136,7 +144,7 @@ def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
         if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
             ### stacked
             breaks = np.quantile(dtf[x], q=np.linspace(0, 1, 11))
-            groups = dtf.groupby([pd.cut(dtf[x], bins=breaks)])[y].agg(['mean','median','size'])
+            groups = dtf.groupby([pd.cut(dtf[x], bins=breaks, duplicates='drop')])[y].agg(['mean','median','size'])
             fig, ax = plt.subplots(figsize=figsize)
             fig.suptitle(x+"   vs   "+y, fontsize=20)
             groups[["mean", "median"]].plot(kind="line", ax=ax)
@@ -165,7 +173,7 @@ def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
             b = b.rename(columns={y:0}).reset_index()
             b = b.merge(a, how="left")
             b["%"] = b[0] / b["tot"] *100
-            sns.barplot(x=x, y="%", hue=y, data=b, ax=ax[1])
+            sns.barplot(x=x, y="%", hue=y, data=b, ax=ax[1]).get_legend().remove()
             ax[1].grid(True)
             ### fix figure
             plt.close(2)
@@ -187,13 +195,13 @@ def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
             ax[0].grid(True)
             ### stacked
             ax[1].title.set_text('bins')
-            breaks = np.quantile(dtf[num], q=np.linspace(0, 1, 11))
+            breaks = np.quantile(dtf[num], q=np.linspace(0,1,11))
             tmp = dtf.groupby([cat, pd.cut(dtf[num], breaks, duplicates='drop')]).size().unstack().T
+            tmp = tmp[dtf[cat].unique()]
             tmp["tot"] = tmp.sum(axis=1)
             for col in tmp.drop("tot", axis=1).columns:
                 tmp[col] = tmp[col] / tmp["tot"]
-            tmp.drop("tot", axis=1).plot(kind='bar', stacked=True, ax=ax[1])
-            ax[1].grid(True)
+            tmp.drop("tot", axis=1).plot(kind='bar', stacked=True, ax=ax[1], legend=False, grid=True)
             ### boxplot   
             ax[2].title.set_text('outliers')
             sns.catplot(x=cat, y=num, data=dtf, kind="box", ax=ax[2])
@@ -366,7 +374,7 @@ def pop_columns(dtf, lst_cols, where="front"):
 
 
 ###############################################################################
-#                FEATURES ENGINEERING & SELECTION                             #
+#                FEATURES ENGINEERING                                         #
 ###############################################################################
 '''
 Transforms a categorical column into dummy columns
@@ -374,24 +382,192 @@ Transforms a categorical column into dummy columns
     :param dtf: dataframe - feature matrix dtf
     :param x: str - column name
     :param dropx: logic - whether the x column should be dropped
-    :param dummy_na: logic - remove Nas or treat as category
 :return
     dtf with dummy columns added
 '''
-def add_dummies(dtf, x, dropx=False, dummy_na=False):
+def add_dummies(dtf, x, dropx=False):
+    dtf_dummy = pd.get_dummies(dtf[x], prefix=x, drop_first=True, dummy_na=False)
+    dtf = pd.concat([dtf, dtf_dummy], axis=1)
+    if dropx == True:
+        dtf = dtf.drop(x, axis=1)
+    return dtf
+    
+
+
+'''
+Reduces the classes a categorical column.
+:parameter
+    :param dtf: dataframe - feature matrix dtf
+    :param x: str - column name
+    :param dic_cluters: dict - ex: {"min":[30,45,180], "max":[60,120], "mean":[]}  where the residual class must have an empty list
+    :param dropx: logic - whether the x column should be dropped
+'''
+def add_feature_clusters(dtf, x, dic_cluters, dropx=False):
+    dic_flat = {v:k for k,lst in dic_cluters.items() for v in lst}
+    for k,v in dic_cluters.items():
+        if len(v)==0:
+            residual_class = k 
+    dtf[x+"_cluster"] = dtf[x].apply(lambda x: dic_flat[x] if x in dic_flat.keys() else residual_class)
+    if dropx == True:
+        dtf = dtf.drop(x, axis=1)
+    return dtf
+       
+
+
+'''
+Rebalances a dataset.
+:parameter
+    :param dtf: dataframe - feature matrix dtf
+    :param y: str - name of the dependent variable 
+    :param balance: str or None - "up", "down"
+    :param replace: logic - resampling with replacement
+    :param size: num - 1 for same size of the other class, 0.5 for half of the other class
+:return
+    rebalanced dtf
+'''
+def rebalance(dtf, y, balance=None,  replace=True, size=1):
     try:
-        dtf_dummy = pd.get_dummies(dtf[x], prefix=x, drop_first=True, dummy_na=dummy_na)
-        dtf = pd.concat([dtf, dtf_dummy], axis=1)
-        if dropx == True:
-            dtf = dtf.drop(x, axis=1)
-        return dtf
+        ## check
+        check = dtf[y].value_counts().to_frame()
+        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
+        print(check)
+        print("tot:", check[y].sum())
+        major = check.index[0]
+        minor = check.index[1]
+        dtf_major = dtf[dtf[y]==major]
+        dtf_minor = dtf[dtf[y]==minor]
+        
+        ## up-sampling
+        if balance == "up":
+            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123,
+                                       n_samples=int(round(size*len(dtf_major), 0)) )
+            dtf_balanced = pd.concat([dtf_major, dtf_minor])
+        ## down-sampling
+        elif balance == "down":
+            dtf_major = utils.resample(dtf_major, replace=replace, random_state=123,
+                                       n_samples=int(round(size*len(dtf_minor), 0)) )
+            dtf_balanced = pd.concat([dtf_major, dtf_minor])
+        else:
+            print("select up or down resampling")
+            return dtf
+        
+        print("")
+        check = dtf_balanced[y].value_counts().to_frame()
+        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
+        print(check)
+        print("tot:", check[y].sum())
+        return dtf_balanced
     
     except Exception as e:
         print("--- got error ---")
         print(e)
+
+
+
+'''
+Computes all the required data preprocessing.
+:parameter
+    :param dtf: dataframe - feature matrix dtf
+    :param pk: str - name of the primary key
+    :param y: str - name of the dependent variable 
+    :param processNas: str or None - "mean", "median", "most_frequent"
+    :param processCategorical: str or None - "dummies"
+    :param split: num or None - test_size (example 0.2)
+    :param scale: str or None - "standard", "minmax"
+    :param task: str - "classification" or "regression"
+:return
+    dictionary with dtf, X_names lsit, (X_train, X_test), (Y_train, Y_test), scaler
+'''
+def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, split=None, scale="standard", task="classification"):
+    try:
+        dtf = pop_columns(dtf, lst_cols=[pk, y], where="front")
         
+        ## 1.missing
+        ### check
+        print("--- check missing ---")
+        if dtf.isna().sum().sum() != 0:
+            cols_with_missings = []
+            for col in dtf.columns.to_list():
+                if dtf[col].isna().sum() != 0:
+                    print("WARNING:", col, "-->", dtf[col].isna().sum(), "Nas")
+                    cols_with_missings.append(col)
+            ### treat
+            if processNas is not None:
+                print("...treating Nas...")
+                cols_with_missings_numeric = []
+                for col in cols_with_missings:
+                    if dtf[col].dtype == "O":
+                        print(col, "categorical --> replacing Nas with label 'missing'")
+                        dtf[col] = dtf[col].fillna('missing')
+                    else:
+                        cols_with_missings_numeric.append(col)
+                if len(cols_with_missings_numeric) != 0:
+                    print("replacing Nas in the numerical variables:", cols_with_missings_numeric)
+                imputer = impute.SimpleImputer(strategy=processNas)
+                imputer = imputer.fit(dtf[cols_with_missings_numeric])
+                dtf[cols_with_missings_numeric] = imputer.transform(dtf[cols_with_missings_numeric])
+        else:
+            print("   OK: No missing")
+                
+        ## 2.categorical data
+        ### check
+        print("--- check categorical data ---")
+        cols_with_categorical = []
+        for col in dtf.drop(pk, axis=1).columns.to_list():
+            if dtf[col].dtype == "O":
+                print("WARNING:", col, "-->", dtf[col].nunique(), "categories")
+                cols_with_categorical.append(col)
+        ### treat
+        if len(cols_with_categorical) != 0:
+            if processCategorical is not None:
+                print("...trating categorical...")
+                for col in cols_with_categorical:
+                    print(col)
+                    dtf = pd.concat([dtf, pd.get_dummies(dtf[col], prefix=col)], axis=1).drop([col], axis=1)
+        else:
+            print("   OK: No categorical")
         
+        ## 3.split train/test
+        print("--- split train/test ---")
+        X = dtf.drop([pk, y], axis=1).values
+        Y = dtf[y].values
+        if split is not None:
+            X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, shuffle=True)
+            print("X_train shape:", X_train.shape, " | X_test shape:", X_test.shape)
+            print("y_train mean:", round(np.mean(Y_train),2), " | y_test mean:", round(np.mean(Y_test),2))
+            print(X_train.shape[1], "features:", dtf.drop([pk, y], axis=1).columns.to_list())
+        else:
+            print("   OK: skipped this step")
+            X_train, Y_train, X_test, Y_test = X, Y, None, None
         
+        ## 4.scaling
+        print("--- scaling ---")
+        if scale is not None:
+            scalerX = preprocessing.StandardScaler() if scale == "standard" else preprocessing.MinMaxScaler()
+            X_train = scalerX.fit_transform(X_train)
+            scalerY = 0
+            if X_test is not None:
+                X_test = scalerX.transform(X_test)
+            if task == "regression":
+                scalerY = preprocessing.StandardScaler() if scale == "standard" else preprocessing.MinMaxScaler()
+                Y_train = scalerY.fit_transform(Y_train.reshape(-1,1))
+            print("   OK: scaled all features")
+        else:
+            print("   OK: skipped this step")
+            scalerX, scalerY = 0, 0
+        
+        return {"dtf":dtf, "X_names":dtf.drop([pk,y], axis=1).columns.to_list(), 
+                "X":(X_train, X_test), "Y":(Y_train, Y_test), "scaler":(scalerX, scalerY)}
+    
+    except Exception as e:
+        print("--- got error ---")
+        print(e)
+
+
+
+###############################################################################
+#                  FEATURES SELECTION                                         #
+###############################################################################    
 '''
 Computes the correlation matrix with seaborn.
 :parameter
@@ -538,170 +714,8 @@ def binomial_test(dtf, x, y, bins=10, figsize=(10,10)):
 
 
 
-'''
-Rebalances a dataset.
-:parameter
-    :param dtf: dataframe - feature matrix dtf
-    :param y: str - name of the dependent variable 
-    :param balance: str or None - "up", "down"
-    :param replace: logic - resampling with replacement
-    :param size: num - 1 for same size of the other class, 0.5 for half of the other class
-:return
-    rebalanced dtf
-'''
-def rebalance(dtf, y, balance=None,  replace=True, size=1):
-    try:
-        ## check
-        check = dtf[y].value_counts().to_frame()
-        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
-        print(check)
-        print("tot:", check[y].sum())
-        major = check.index[0]
-        minor = check.index[1]
-        dtf_major = dtf[dtf[y]==major]
-        dtf_minor = dtf[dtf[y]==minor]
-        
-        ## up-sampling
-        if balance == "up":
-            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_major), 0)) )
-            dtf_balanced = pd.concat([dtf_major, dtf_minor])
-        ## down-sampling
-        elif balance == "down":
-            dtf_major = utils.resample(dtf_major, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_minor), 0)) )
-            dtf_balanced = pd.concat([dtf_major, dtf_minor])
-        else:
-            print("select up or down resampling")
-            return dtf
-        
-        print("")
-        check = dtf_balanced[y].value_counts().to_frame()
-        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
-        print(check)
-        print("tot:", check[y].sum())
-        return dtf_balanced
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-
-
-'''
-Computes all the required data preprocessing.
-:parameter
-    :param dtf: dataframe - feature matrix dtf
-    :param pk: str - name of the primary key
-    :param y: str - name of the dependent variable 
-    :param processNas: str or None - "mean", "median", "most_frequent"
-    :param processCategorical: str or None - "dummies"
-    :param split: num or None - test_size (example 0.2)
-    :param scale: str or None - "standard", "minmax"
-    :param task: str - "classification" or "regression"
-:return
-    dictionary with dtf, X_names lsit, (X_train, X_test), (Y_train, Y_test), scaler
-'''
-def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, split=None, scale="standard", task="classification"):
-    try:
-        ## 0.tidying columns
-        dtf = pop_columns(dtf, lst_cols=[pk, y], where="front")
-        
-        ## 1.missing
-        ### check
-        print("--- check missing ---")
-        if dtf.isna().sum().sum() != 0:
-            cols_with_missings = []
-            for col in dtf.columns.to_list():
-                if dtf[col].isna().sum() != 0:
-                    print("WARNING:", col, "-->", dtf[col].isna().sum(), "Nas")
-                    cols_with_missings.append(col)
-            ### treat
-            if processNas is not None:
-                print("...treating Nas...")
-                cols_with_missings_numeric = []
-                for col in cols_with_missings:
-                    if dtf[col].dtype == "O":
-                        print(col, "categorical --> replacing Nas with label 'missing'")
-                        dtf[col] = dtf[col].fillna('missing')
-                    else:
-                        cols_with_missings_numeric.append(col)
-                if len(cols_with_missings_numeric) != 0:
-                    print("replacing Nas in the numerical variables:", cols_with_missings_numeric)
-                imputer = impute.SimpleImputer(strategy=processNas)
-                imputer = imputer.fit(dtf[cols_with_missings_numeric])
-                dtf[cols_with_missings_numeric] = imputer.transform(dtf[cols_with_missings_numeric])
-        else:
-            print("   OK: No missing")
-                
-        ## 2.categorical data
-        ### check
-        print("--- check categorical data ---")
-        cols_with_categorical = []
-        for col in dtf.drop(pk, axis=1).columns.to_list():
-            if dtf[col].dtype == "O":
-                print("WARNING:", col, "-->", dtf[col].nunique(), "categories")
-                cols_with_categorical.append(col)
-        ### treat
-        if len(cols_with_categorical) != 0:
-            if processCategorical is not None:
-                print("...trating categorical...")
-                for col in cols_with_categorical:
-                    print(col)
-                    dtf = pd.concat([dtf, pd.get_dummies(dtf[col], prefix=col)], axis=1).drop([col], axis=1)
-        else:
-            print("   OK: No categorical")
-        
-        ## 3.split train/test
-        print("--- split train/test ---")
-        X = dtf.drop([pk, y], axis=1).values
-        Y = dtf[y].values
-        if split is not None:
-            X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, random_state=123, shuffle=True)
-            print("X_train shape:", X_train.shape, " | X_test shape:", X_test.shape)
-            if task=="classification":
-                print("1s in y_train:", round(sum(Y_train)/Y_train.shape[0],2), " | 1s in y_test:", round(sum(Y_test)/Y_test.shape[0],2))
-            print(X_train.shape[1], "features:", dtf.drop([pk, y], axis=1).columns.to_list())
-        else:
-            print("   OK: skipped this step")
-            X_train = X
-            Y_train = Y
-            X_test, Y_test = None, None
-        
-        ## 4.scaling
-        print("--- scaling ---")
-        if scale is not None:
-            if scale == "standard":
-                scalerX = preprocessing.StandardScaler()
-                scalerY = preprocessing.StandardScaler()
-            elif scale == "minmax":
-                scalerX = preprocessing.MinMaxScaler()
-                scalerY = preprocessing.MinMaxScaler()
-            else:
-                print("select a scaler: 'standard' or 'minmax'")
-            X_train = scalerX.fit_transform(X_train)
-            if X_test is not None:
-                X_test = scalerX.transform(X_test)
-            if task == "regression":
-                Y_train = scalerY.fit_transform(Y_train)
-            else:
-                scalerY = 0
-            print("   OK: scaled all features")
-        else:
-            print("   OK: skipped this step")
-            scalerX, scalerY = 0, 0
-        
-        return {"dtf":dtf, "X_names":dtf.drop([pk,y], axis=1).columns.to_list(), 
-                "X":(X_train, X_test), "Y":(Y_train, Y_test), "scaler":(scalerX, scalerY)}
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-
-
 ###############################################################################
-#                   MODEL DESIGN & TESTING                                    #
+#                   MODEL DESIGN & TESTING - CLASSIFICATION                   #
 ###############################################################################
 '''
 '''
@@ -745,7 +759,7 @@ Tunes the hyperparameters of a sklearn model.
 :return
     model with hyperparams tuned
 '''
-def model_tuning(X_train, Y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
+def tune_classif_model(X_train, Y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
     ## params
     model_base = ensemble.GradientBoostingClassifier() if model_base is None else model_base
     param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
@@ -815,88 +829,6 @@ def fit_classif_model(model, X_train, Y_train, X_test, Y_test, Y_threshold=0.5):
 
 
 '''
-Fits a sklearn regression model.
-:parameter
-    :param model: model object - model to fit (before fitting)
-    :param X_train: array
-    :param Y_train: array
-    :param X_test: array
-    :param Y_test: array
-    :param scalerY: scaler object (only for regression)
-:return
-    model fitted and predictions
-'''
-def fit_regr_model(model, X_train, Y_train, X_test, Y_test, scalerY=None):  
-    ## model
-    model = linear_model.LinearRegression() if model is None else model
-    
-    ## train/test
-    model.fit(X_train, Y_train)
-    predicted = model.predict(X_test)
-    if scalerY is not None:
-        predicted = scalerY.inverse_transform(predicted)
-    
-    ## kpi
-    print("R2:", metrics.r2_score(Y_test, predicted))
-    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
-    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
-    return {"model":model, "predicted":predicted}
-        
-
-
-'''
-Evaluates a model performance.
-:parameter
-    :param Y_test: array
-    :param predicted: array
-    :param predicted_prob: array
-    :param task: str - "classification" or "regression"
-    :param figsize: tuple - plot setting
-'''
-def evaluate_model(Y_test, predicted, predicted_prob, task="classification", figsize=(20,10)):
-    try:
-        if task == "classification":
-            classes = (np.unique(Y_test)[0], np.unique(Y_test)[1])
-            fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
-            
-            ## confusion matrix
-            cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
-            sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
-            ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
-            ax[0].set_yticklabels(labels=classes, rotation=0)
-            
-            ## roc
-            fpr, tpr, thresholds = metrics.roc_curve(Y_test, predicted_prob)
-            roc_auc = metrics.auc(fpr, tpr)     
-            ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
-            ax[1].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
-            ax[1].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
-            ax[1].legend(loc="lower right")
-            ax[1].grid(True)
-            
-            ## precision-recall curve
-            precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
-            ax[2].plot(recall, precision, lw=3)
-            ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
-            ax[2].grid(True)
-            
-        elif task == "regression":
-            from statsmodels.graphics.api import abline_plot
-            fig, ax = plt.subplots()
-            ax.scatter(predicted, Y_test)
-            abline_plot(intercept=0, slope=1, horiz=None, vert=None, model_results=None, ax=ax)
-            ax.set_ylabel('Y True')
-            ax.set_xlabel('Y Predicted')
-        
-        plt.show()
-            
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
-
-    
-'''
 Computes features importance.
 :parameter
     :param X_train: array
@@ -951,11 +883,189 @@ def explainer(X_train, X_names, model, Y_train, X_test_instance, task="classific
     else:
         dtf_explainer = 0
     return dtf_explainer
+
+
+
+'''
+Fits a keras 3-layer artificial neural network.
+:parameter
+    :param X_train: array
+    :param Y_train: array
+    :param X_test: array
+    :param Y_test: array
+    :param batch_size: num - keras batch
+    :param epochs: num - keras epochs
+    :param Y_threshold: num - predictions > threshold are 1, otherwise 0
+:return
+    model fitted and predictions
+'''
+def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
+    ## build ann
+    ### initialize
+    model = models.Sequential()
+    n_features = X_train.shape[1]
+    n_neurons = int(round((n_features + 1)/2))
+    ### layer 1
+    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer 2
+    model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer output
+    model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
+    ### compile
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    
+    ## fit
+    print(model.summary())
+    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    model = training.model
+    plt.plot(training.history['loss'], label='loss')
+    plt.suptitle("Loss function during training", fontsize=20)
+    plt.ylabel("Loss")
+    plt.xlabel("epochs")
+    plt.show()
+    
+    ## predict
+    predicted_prob = model.predict(X_test)
+    predicted = (predicted_prob > Y_threshold)
+    classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
+    print( "accuracy =", metrics.accuracy_score(Y_test, predicted) )
+    print( "auc =", metrics.roc_auc_score(Y_test, predicted_prob) )
+    print( "log_loss =", metrics.log_loss(Y_test, predicted_prob) )
+    print( " " )
+    print( metrics.classification_report(Y_test, predicted, target_names=classes) )
+    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+Evaluates a model performance.
+:parameter
+    :param Y_test: array
+    :param predicted: array
+    :param predicted_prob: array
+'''
+def evaluate_classif_model(Y_test, predicted, predicted_prob, figsize=(20,10)):
+    classes = (np.unique(Y_test)[0], np.unique(Y_test)[1])
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
+    
+    ## confusion matrix
+    cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
+    sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
+    ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
+    ax[0].set_yticklabels(labels=classes, rotation=0)
+    
+    ## roc
+    fpr, tpr, thresholds = metrics.roc_curve(Y_test, predicted_prob)
+    roc_auc = metrics.auc(fpr, tpr)     
+    ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
+    ax[1].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
+    ax[1].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
+    ax[1].legend(loc="lower right")
+    ax[1].grid(True)
+    
+    ## precision-recall curve
+    precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
+    ax[2].plot(recall, precision, lw=3)
+    ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
+    ax[2].grid(True)
+    plt.show()
+            
+
+
+###############################################################################
+#                   MODEL DESIGN & TESTING - REGRESSION                       #
+###############################################################################
+'''
+Fits a sklearn regression model.
+:parameter
+    :param model: model object - model to fit (before fitting)
+    :param X_train: array
+    :param Y_train: array
+    :param X_test: array
+    :param Y_test: array
+    :param scalerY: scaler object (only for regression)
+:return
+    model fitted and predictions
+'''
+def fit_regr_model(model, X_train, Y_train, X_test, Y_test, scalerY=None):  
+    ## model
+    model = linear_model.LinearRegression() if model is None else model
+    
+    ## train/test
+    model.fit(X_train, Y_train)
+    predicted = model.predict(X_test)
+    if scalerY is not None:
+        predicted = scalerY.inverse_transform(predicted)
+    
+    ## kpi
+    print("R2:", metrics.r2_score(Y_test, predicted))
+    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
+    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
+    return {"model":model, "predicted":predicted}
+        
+
+
+'''
+'''
+def fit_ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
+    ## build ann
+    ### initialize
+    model = models.Sequential()
+    n_features = X_train.shape[1]
+    n_neurons = int(round((n_features + 1)/2))
+    ### layer 1
+    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer 2
+    model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
+    model.add(layers.Dropout(rate=0.2))
+    ### layer output
+    model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
+    ### compile
+    model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
+    
+    ## fit
+    print(model.summary())
+    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    model = training.model
+    plt.plot(training.history['loss'], label='loss')
+    plt.suptitle("Loss function during training", fontsize=20)
+    plt.ylabel("Loss")
+    plt.xlabel("epochs")
+    plt.show()
+    
+    ## predict
+    predicted = model.predict(X_test)
+    if scalerY is not None:
+        predicted = scalerY.inverse_transform(predicted)
+    print("R2:", metrics.r2_score(Y_test, predicted))
+    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
+    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
+    return {"model":model, "predicted":predicted}
+
+
+
+'''
+Evaluates a model performance.
+:parameter
+    :param Y_test: array
+    :param predicted: array
+'''
+def evaluate_regr_model(Y_test, predicted, figsize=(20,10)):
+    from statsmodels.graphics.api import abline_plot
+    fig, ax = plt.subplots()
+    ax.scatter(predicted, Y_test)
+    abline_plot(intercept=0, slope=1, horiz=None, vert=None, model_results=None, ax=ax)
+    ax.set_ylabel('Y True')
+    ax.set_xlabel('Y Predicted')
+    plt.show()
     
 
-    
+
 ###############################################################################
-#                         OTHER MODELS                                        #
+#                         UNSUPERVISED                                        #
 ###############################################################################
 '''
 Decomposes the feture matrix of train and test.
@@ -1055,101 +1165,5 @@ def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
             x2_pos = X_names.index(lst_features_2Dplot[1])
             sns.scatterplot(x=lst_features_2Dplot[0], y=lst_features_2Dplot[1], data=dtf_clusters, 
                             hue='cluster', style="cluster", legend="brief").set_title('K-means clustering')
-            plt.scatter(kmeans.cluster_centers_[:,x1_pos], kmeans.cluster_centers_[:,x2_pos], s=200, c='red', label='Centroids')
-            
+            plt.scatter(kmeans.cluster_centers_[:,x1_pos], kmeans.cluster_centers_[:,x2_pos], s=200, c='red', label='Centroids')   
         return dtf_clusters
-
-
-
-'''
-Fits a keras 3-layer artificial neural network.
-:parameter
-    :param X_train: array
-    :param Y_train: array
-    :param X_test: array
-    :param Y_test: array
-    :param batch_size: num - keras batch
-    :param epochs: num - keras epochs
-    :param Y_threshold: num - predictions > threshold are 1, otherwise 0
-:return
-    model fitted and predictions
-'''
-def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
-    ## build ann
-    ### initialize
-    model = models.Sequential()
-    n_features = X_train.shape[1]
-    n_neurons = int(round((n_features + 1)/2))
-    ### layer 1
-    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer 2
-    model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer output
-    model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
-    ### compile
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    
-    ## fit
-    print(model.summary())
-    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
-    model = training.model
-    plt.plot(training.history['loss'], label='loss')
-    plt.suptitle("Loss function during training", fontsize=20)
-    plt.ylabel("Loss")
-    plt.xlabel("epochs")
-    plt.show()
-    
-    ## predict
-    predicted_prob = model.predict(X_test)
-    predicted = (predicted_prob > Y_threshold)
-    classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
-    print( "accuracy =", metrics.accuracy_score(Y_test, predicted) )
-    print( "auc =", metrics.roc_auc_score(Y_test, predicted_prob) )
-    print( "log_loss =", metrics.log_loss(Y_test, predicted_prob) )
-    print( " " )
-    print( metrics.classification_report(Y_test, predicted, target_names=classes) )
-    
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
-
-
-
-'''
-'''
-def fit_ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
-    ## build ann
-    ### initialize
-    model = models.Sequential()
-    n_features = X_train.shape[1]
-    n_neurons = int(round((n_features + 1)/2))
-    ### layer 1
-    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer 2
-    model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer output
-    model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
-    ### compile
-    model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
-    
-    ## fit
-    print(model.summary())
-    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
-    model = training.model
-    plt.plot(training.history['loss'], label='loss')
-    plt.suptitle("Loss function during training", fontsize=20)
-    plt.ylabel("Loss")
-    plt.xlabel("epochs")
-    plt.show()
-    
-    ## predict
-    predicted = model.predict(X_test)
-    if scalerY is not None:
-        predicted = scalerY.inverse_transform(predicted)
-    print("R2:", metrics.r2_score(Y_test, predicted))
-    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
-    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
-    
-    return {"model":model, "predicted":predicted}
