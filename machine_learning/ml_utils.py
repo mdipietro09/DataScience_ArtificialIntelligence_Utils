@@ -532,13 +532,13 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
         X = dtf.drop([pk, y], axis=1).values
         Y = dtf[y].values
         if split is not None:
-            X_train, X_test, Y_train, Y_test = model_selection.train_test_split(X, Y, test_size=split, shuffle=True)
+            X_train, X_test, y_train, y_test = model_selection.train_test_split(X, Y, test_size=split, shuffle=False)
             print("X_train shape:", X_train.shape, " | X_test shape:", X_test.shape)
-            print("y_train mean:", round(np.mean(Y_train),2), " | y_test mean:", round(np.mean(Y_test),2))
+            print("y_train mean:", round(np.mean(y_train),2), " | y_test mean:", round(np.mean(y_test),2))
             print(X_train.shape[1], "features:", dtf.drop([pk, y], axis=1).columns.to_list())
         else:
             print("   OK: skipped this step")
-            X_train, Y_train, X_test, Y_test = X, Y, None, None
+            X_train, y_train, X_test, y_test = X, Y, None, None
         
         ## 4.scaling
         print("--- scaling ---")
@@ -550,14 +550,14 @@ def data_preprocessing(dtf, pk, y, processNas=None, processCategorical=None, spl
                 X_test = scalerX.transform(X_test)
             if task == "regression":
                 scalerY = preprocessing.StandardScaler() if scale == "standard" else preprocessing.MinMaxScaler()
-                Y_train = scalerY.fit_transform(Y_train.reshape(-1,1))
+                y_train = scalerY.fit_transform(y_train.reshape(-1,1))
             print("   OK: scaled all features")
         else:
             print("   OK: skipped this step")
             scalerX, scalerY = 0, 0
         
         return {"dtf":dtf, "X_names":dtf.drop([pk,y], axis=1).columns.to_list(), 
-                "X":(X_train, X_test), "Y":(Y_train, Y_test), "scaler":(scalerX, scalerY)}
+                "X":(X_train, X_test), "y":(y_train, y_test), "scaler":(scalerX, scalerY)}
     
     except Exception as e:
         print("--- got error ---")
@@ -706,7 +706,7 @@ def binomial_test(dtf, x, y, bins=10, figsize=(10,10)):
             
             dtf = dtf.drop("bin", axis=1)
         else:
-            print("chosen X aint numeric")
+            print("chosen x aint numeric")
     
     except Exception as e:
         print("--- got error ---")
@@ -718,17 +718,88 @@ def binomial_test(dtf, x, y, bins=10, figsize=(10,10)):
 #                   MODEL DESIGN & TESTING - CLASSIFICATION                   #
 ###############################################################################
 '''
+Fits a sklearn classification model.
+:parameter
+    :param model: model object - model to fit (before fitting)
+    :param X_train: array
+    :param y_train: array
+    :param X_test: array
+    :param y_test: array
+    :param threshold: num - predictions > threshold are 1, otherwise 0 (only for classification)
+:return
+    model fitted and predictions
 '''
-def utils_kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
+def fit_classif_model(model, X_train, y_train, X_test, y_test, threshold=0.5):
+    ## model
+    model = ensemble.GradientBoostingClassifier() if model is None else model
+    
+    ## train/test
+    classes = ( str(np.unique(y_train)[0]), str(np.unique(y_train)[1]) )
+    model.fit(X_train, y_train)
+    predicted_prob = model.predict_proba(X_test)[:,1]
+    predicted = (predicted_prob > threshold)
+    
+    ## Accuray e AUC
+    accuracy = metrics.accuracy_score(y_test, predicted)
+    auc = metrics.roc_auc_score(y_test, predicted_prob)
+    print("Accuracy (overall correct predictions):",  round(accuracy,3))
+    print("Auc:", round(auc,3))
+    
+    ## Precision e Recall
+    recall = metrics.recall_score(y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
+    precision = metrics.precision_score(y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
+    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
+    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
+    print("Detail:")
+    print(metrics.classification_report(y_test, predicted, target_names=classes))
+    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+
+
+
+'''
+Computes features importance.
+:parameter
+    :param X_train: array
+    :param X_names: list
+    :param model: model istance (after fitting)
+    :param figsize: tuple - plot setting
+:return
+    dtf with features importance
+'''
+def features_importance(X_train, X_names, model, figsize=(10,10)):
+    ## importance dtf
+    importances = model.feature_importances_
+    dtf_importances = pd.DataFrame({"IMPORTANCE":importances, "VARIABLE":X_names}).sort_values("IMPORTANCE", ascending=False)
+    dtf_importances['cumsum'] = dtf_importances['IMPORTANCE'].cumsum(axis=0)
+    dtf_importances = dtf_importances.set_index("VARIABLE")
+    ## plot
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=False, figsize=figsize)
+    fig.suptitle("Features Importance", fontsize=20)
+    ax[0].title.set_text('variables')
+    dtf_importances[["IMPORTANCE"]].sort_values(by="IMPORTANCE").plot(kind="barh", legend=False, ax=ax[0]).grid(axis="x")
+    ax[0].set(ylabel="")
+    ax[1].title.set_text('cumulative')
+    dtf_importances[["cumsum"]].plot(kind="line", linewidth=4, legend=False, ax=ax[1])
+    ax[1].set(xlabel="", xticks=np.arange(len(dtf_importances)), xticklabels=dtf_importances.index)
+    plt.xticks(rotation=70)
+    plt.grid(axis='both')
+    plt.show()
+    return dtf_importances.reset_index()
+
+
+
+'''
+'''
+def utils_kfold_validation(model, X_train, y_train, cv=10, figsize=(10,10)):
     cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
     tprs, aucs = [], []
     mean_fpr = np.linspace(0,1,100)
     fig = plt.figure(figsize=figsize)
     
     i = 1
-    for train, test in cv.split(X_train, Y_train):
-        prediction = model.fit(X_train[train], Y_train[train]).predict_proba(X_train[test])
-        fpr, tpr, t = metrics.roc_curve(Y_train[test], prediction[:, 1])
+    for train, test in cv.split(X_train, y_train):
+        prediction = model.fit(X_train[train], y_train[train]).predict_proba(X_train[test])
+        fpr, tpr, t = metrics.roc_curve(y_train[test], prediction[:, 1])
         tprs.append(scipy.interp(mean_fpr, fpr, tpr))
         roc_auc = metrics.auc(fpr, tpr)
         aucs.append(roc_auc)
@@ -750,7 +821,7 @@ def utils_kfold_validation(model, X_train, Y_train, cv=10, figsize=(10,10)):
 '''
 Tunes the hyperparameters of a sklearn model.
 :parameter
-    :param model_base: model object - model istance to tune (before fitting)
+    :param model_base: model object - model istance to tune (before fitting)
     :param param_dic: dict - dictionary of parameters to tune
     :param X_train: array - feature matrix
     :param y_train: array - y vector
@@ -759,130 +830,33 @@ Tunes the hyperparameters of a sklearn model.
 :return
     model with hyperparams tuned
 '''
-def tune_classif_model(X_train, Y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
+def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
     ## params
     model_base = ensemble.GradientBoostingClassifier() if model_base is None else model_base
     param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
             
     ## Search
-    print(searchtype.upper())
+    print("---", searchtype, "---")
     if searchtype == "RandomSearch":
-        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, Y_train)
+        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, y_train)
         print("Best Model parameters:", random_search.best_params_)
         print("Best Model mean "+scoring+":", random_search.best_score_)
         model = random_search.best_estimator_
         
     elif searchtype == "GridSearch":
-        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, Y_train)
+        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, y_train)
         print("Best Model parameters:", grid_search.best_params_)
         print("Best Model mean "+scoring+":", grid_search.best_score_)
         model = grid_search.best_estimator_
     
     ## K fold validation
     print("")
-    Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=Y_train, cv=cv, scoring=scoring)
-    Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=Y_train, cv=cv, scoring=scoring)
-    print("K-FOLD VALIDATION")
-    print(scoring+" mean: from", Kfold_base.mean(), " ----> ", Kfold_model.mean())
-    utils_kfold_validation(model, X_train, Y_train, cv=cv, figsize=figsize)
+    Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=y_train, cv=cv, scoring=scoring)
+    Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=y_train, cv=cv, scoring=scoring)
+    print("--- Kfold Validation ---")
+    print("mean", scoring, "base:", Kfold_base.mean(), " --> best:", Kfold_model.mean())
+    utils_kfold_validation(model, X_train, y_train, cv=cv, figsize=figsize)
     return model
-        
-        
-        
-'''
-Fits a sklearn classification model.
-:parameter
-    :param model: model object - model to fit (before fitting)
-    :param X_train: array
-    :param Y_train: array
-    :param X_test: array
-    :param Y_test: array
-    :param Y_threshold: num - predictions > threshold are 1, otherwise 0 (only for classification)
-:return
-    model fitted and predictions
-'''
-def fit_classif_model(model, X_train, Y_train, X_test, Y_test, Y_threshold=0.5):
-    ## model
-    model = ensemble.GradientBoostingClassifier() if model is None else model
-    
-    ## train/test
-    classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
-    model.fit(X_train, Y_train)
-    predicted_prob = model.predict_proba(X_test)[:,1]
-    predicted = (predicted_prob > Y_threshold)
-    
-    ## Accuray e AUC
-    accuracy = metrics.accuracy_score(Y_test, predicted)
-    auc = metrics.roc_auc_score(Y_test, predicted_prob)
-    print("Accuracy (overall correct predictions):",  round(accuracy,3))
-    print("Auc:", round(auc,3))
-    
-    ## Precision e Recall
-    recall = metrics.recall_score(Y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
-    precision = metrics.precision_score(Y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
-    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
-    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
-    print("Detail:")
-    print(metrics.classification_report(Y_test, predicted, target_names=classes))
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
-
-
-
-'''
-Computes features importance.
-:parameter
-    :param X_train: array
-    :param X_names: list
-    :param Y_train: array
-    :param model: model istance (after fitting)
-    :param figsize: tuple - plot setting
-:return
-    dtf with features importance
-'''
-def features_importance(X_train, X_names, Y_train, model, figsize=(10,10)):
-    ## importance dtf
-    importances = model.feature_importances_
-    dtf_importances = pd.DataFrame({"IMPORTANCE": importances, "VARIABLE": X_names}).sort_values("IMPORTANCE", ascending=False)
-    dtf_importances['cumsum'] = dtf_importances['IMPORTANCE'].cumsum(axis=0)
-    dtf_importances = dtf_importances.set_index("VARIABLE")
-    ## plot
-    fig, ax = plt.subplots(nrows=1, ncols=2,  sharex=False, sharey=False, figsize=figsize)
-    fig.suptitle("Features Importance", fontsize=20)
-    ax[0].title.set_text('variables')
-    dtf_importances[["IMPORTANCE"]].sort_values(by="IMPORTANCE").plot(kind="barh", legend=False, ax=ax[0])
-    ax[0].set(ylabel="")
-    ax[1].title.set_text('cumulative')
-    dtf_importances[["cumsum"]].plot(kind="line", linewidth=4, legend=False, ax=ax[1])
-    ax[1].set(xlabel="", xticks=np.arange(len(dtf_importances)), xticklabels=dtf_importances.index)
-    plt.xticks(rotation=70)
-    plt.grid(axis='both')
-    plt.show()
-    return dtf_importances.reset_index()
-
-
-
-'''
-Uses lime to build an a explainer.
-:parameter
-    :param X_train: array
-    :param X_names: list
-    :param model: model instance (after fitting)
-    :param Y_train: array
-    :param X_test_instance: array of size n x 1 (n,)
-    :param task: string - "classification", "regression"
-    :param top: num - top features to display
-:return
-    dtf with explanations
-'''
-def explainer(X_train, X_names, model, Y_train, X_test_instance, task="classification", top=10):
-    if task=="classification":
-        explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(Y_train), mode=task)
-        explained = explainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
-        dtf_explainer = pd.DataFrame(explained.as_list(), columns=['reason','effect'])
-        explained.as_pyplot_figure()
-    else:
-        dtf_explainer = 0
-    return dtf_explainer
 
 
 
@@ -895,30 +869,31 @@ Fits a keras 3-layer artificial neural network.
     :param Y_test: array
     :param batch_size: num - keras batch
     :param epochs: num - keras epochs
-    :param Y_threshold: num - predictions > threshold are 1, otherwise 0
+    :param threshold: num - predictions > threshold are 1, otherwise 0
 :return
     model fitted and predictions
 '''
-def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, Y_threshold=0.5):
-    ## build ann
-    ### initialize
-    model = models.Sequential()
-    n_features = X_train.shape[1]
-    n_neurons = int(round((n_features + 1)/2))
-    ### layer 1
-    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer 2
-    model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer output
-    model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
-    ### compile
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+def fit_ann_classif(X_train, y_train, X_test, y_test, model=None, batch_size=32, epochs=100, threshold=0.5):
+    ## model
+    if model is None:
+        ### initialize
+        model = models.Sequential()
+        n_features = X_train.shape[1]
+        n_neurons = int(round((n_features + 1)/2))
+        ### layer 1
+        model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
+        model.add(layers.Dropout(rate=0.2))
+        ### layer 2
+        model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
+        model.add(layers.Dropout(rate=0.2))
+        ### layer output
+        model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
+        ### compile
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     
     ## fit
     print(model.summary())
-    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
@@ -928,13 +903,13 @@ def fit_ann_classif(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100,
     
     ## predict
     predicted_prob = model.predict(X_test)
-    predicted = (predicted_prob > Y_threshold)
-    classes = ( str(np.unique(Y_train)[0]), str(np.unique(Y_train)[1]) )
-    print( "accuracy =", metrics.accuracy_score(Y_test, predicted) )
-    print( "auc =", metrics.roc_auc_score(Y_test, predicted_prob) )
-    print( "log_loss =", metrics.log_loss(Y_test, predicted_prob) )
+    predicted = (predicted_prob > threshold)
+    classes = ( str(np.unique(y_train)[0]), str(np.unique(y_train)[1]) )
+    print( "accuracy =", metrics.accuracy_score(y_test, predicted) )
+    print( "auc =", metrics.roc_auc_score(y_test, predicted_prob) )
+    print( "log_loss =", metrics.log_loss(y_test, predicted_prob) )
     print( " " )
-    print( metrics.classification_report(Y_test, predicted, target_names=classes) )
+    print( metrics.classification_report(y_test, predicted, target_names=classes) )
     return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
 
 
@@ -946,32 +921,32 @@ Evaluates a model performance.
     :param predicted: array
     :param predicted_prob: array
 '''
-def evaluate_classif_model(Y_test, predicted, predicted_prob, figsize=(20,10)):
-    classes = (np.unique(Y_test)[0], np.unique(Y_test)[1])
+def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
+    classes = (np.unique(y_test)[0], np.unique(y_test)[1])
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
     
     ## confusion matrix
-    cm = metrics.confusion_matrix(Y_test, predicted, labels=classes)
+    cm = metrics.confusion_matrix(y_test, predicted, labels=classes)
     sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
     ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
     ax[0].set_yticklabels(labels=classes, rotation=0)
-    
+ 
     ## roc
-    fpr, tpr, thresholds = metrics.roc_curve(Y_test, predicted_prob)
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, predicted_prob)
     roc_auc = metrics.auc(fpr, tpr)     
     ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
     ax[1].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
     ax[1].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
     ax[1].legend(loc="lower right")
     ax[1].grid(True)
-    
+
     ## precision-recall curve
-    precision, recall, thresholds = metrics.precision_recall_curve(Y_test, predicted_prob)
+    precision, recall, thresholds = metrics.precision_recall_curve(y_test, predicted_prob)
     ax[2].plot(recall, precision, lw=3)
     ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
     ax[2].grid(True)
     plt.show()
-            
+     
 
 
 ###############################################################################
@@ -1009,22 +984,23 @@ def fit_regr_model(model, X_train, Y_train, X_test, Y_test, scalerY=None):
 
 '''
 '''
-def fit_ann_regr(X_train, Y_train, X_test, Y_test, batch_size=32, epochs=100, scalerY=None):
-    ## build ann
-    ### initialize
-    model = models.Sequential()
-    n_features = X_train.shape[1]
-    n_neurons = int(round((n_features + 1)/2))
-    ### layer 1
-    model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer 2
-    model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
-    model.add(layers.Dropout(rate=0.2))
-    ### layer output
-    model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
-    ### compile
-    model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
+def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_size=32, epochs=100):
+    ## model
+    if model is None:
+        ### initialize
+        model = models.Sequential()
+        n_features = X_train.shape[1]
+        n_neurons = int(round((n_features + 1)/2))
+        ### layer 1
+        model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
+        model.add(layers.Dropout(rate=0.2))
+        ### layer 2
+        model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
+        model.add(layers.Dropout(rate=0.2))
+        ### layer output
+        model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
+        ### compile
+        model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
     
     ## fit
     print(model.summary())
@@ -1068,66 +1044,6 @@ def evaluate_regr_model(Y_test, predicted, figsize=(20,10)):
 #                         UNSUPERVISED                                        #
 ###############################################################################
 '''
-Decomposes the feture matrix of train and test.
-:parameter
-    :param X_train: array
-    :param X_test: array
-    :param algo: string - 'PCA', 'KernelPCA', 'SVD', 'LDA'
-    :param Y_train: array or None - only for algo="LDA"
-    :param n_features: num - how many dimensions you want
-:return
-    dict with new train and test, and the model 
-'''
-def dimensionality_reduction(X_train, X_test, Y_train=None, n_features=2):
-    if Y_train is None:
-        print("--- unsupervised ---")
-        model = decomposition.PCA(n_components=n_features)
-        X_train = model.fit_transform(X_train)
-    else:
-        print("--- supervised ---")
-        model = discriminant_analysis.LinearDiscriminantAnalysis(n_components=n_features)
-        X_train = model.fit_transform(X_train, Y_train)
-    X_test = model.transform(X_test)
-    return {"X":(X_train, X_test), "model":model}
-
-
-
-'''
-Plots a 2-features classification model result.
-:parameter
-    :param X_test: array
-    :param X_names: list
-    :param Y_test: array
-    :param model: model istance (after fitting)
-    :param colors: tuple - plot setting
-    :param figsize: tuple - plot setting
-'''
-def plot2D_classification(X_test, X_names, Y_test, model, colors={0:"black",1:"green"}, figsize=(10,10)):
-    from matplotlib.colors import ListedColormap
-    X_set, y_set = X_test, Y_test
-    X1, X2 = np.meshgrid(np.arange(start=X_set[:, 0].min() - 1, 
-                                   stop= X_set[:, 0].max() + 1, 
-                                   step=0.01),
-                         np.arange(start=X_set[:, 1].min() - 1, 
-                                   stop=X_set[:, 1].max() + 1, 
-                                   step=0.01)
-                         )
-    plt.figure(figsize=figsize)
-    plt.contourf(X1, X2, model.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape), 
-                 alpha=0.75, cmap=ListedColormap(list(colors.values())))
-    plt.xlim(X1.min(), X1.max())
-    plt.ylim(X2.min(), X2.max())
-    for i,j in enumerate(np.unique(y_set)):
-        plt.scatter(X_set[y_set == j, 0], X_set[y_set == j, 1], c=colors[j], label=j)    
-    plt.title('Classification Model')
-    plt.xlabel(X_names[0])
-    plt.ylabel(X_names[1])
-    plt.legend()
-    plt.show()
-    
-
-
-'''
 Clusters data with k-means.
 :paramater
     :param X: array
@@ -1167,3 +1083,95 @@ def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
                             hue='cluster', style="cluster", legend="brief").set_title('K-means clustering')
             plt.scatter(kmeans.cluster_centers_[:,x1_pos], kmeans.cluster_centers_[:,x2_pos], s=200, c='red', label='Centroids')   
         return dtf_clusters
+    
+    
+    
+'''
+Decomposes the feture matrix of train and test.
+:parameter
+    :param X_train: array
+    :param X_test: array
+    :param y_train: array or None - only for algo="LDA"
+    :param n_features: num - how many dimensions you want
+:return
+    dict with new train and test, and the model 
+'''
+def utils_dimensionality_reduction(X_train, X_test, y_train=None, n_features=2):
+    if (y_train is None) or len(np.unique(y_train)<=2):
+        print("--- unsupervised: pca ---")
+        model = decomposition.PCA(n_components=n_features)
+        X_train = model.fit_transform(X_train)
+    else:
+        print("--- supervised: lda ---")
+        model = discriminant_analysis.LinearDiscriminantAnalysis(n_components=n_features)
+        X_train = model.fit_transform(X_train, y_train)
+    X_test = model.transform(X_test)
+    return {"X":(X_train, X_test), "model":model}
+
+
+
+'''
+Plots a 2-features classification model result.
+:parameter
+    :param X_train: array
+    :param y_train: array
+    :param X_test: array
+    :param y_test: array
+    :param model: model istance (before fitting)
+'''
+def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=False, figsize=(10,10)):
+    ## n features > 2d
+    if X_train.shape[1] > 2:
+        lda = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
+        X_train, X_test = lda["X"]
+     
+    ## fit 2d model
+    print("--- fitting 2d model ---")
+    model_2d = ensemble.GradientBoostingClassifier() if model is None else model
+    model_2d.fit(X_train, y_train)
+    
+    ## plot predictions
+    print("--- plotting test set ---")
+    from matplotlib.colors import ListedColormap
+    colors = {np.unique(y_test)[0]:"black", np.unique(y_test)[1]:"green"}
+    X1, X2 = np.meshgrid(np.arange(start=X_test[:,0].min()-1, stop=X_test[:,0].max()+1, step=0.01),
+                         np.arange(start=X_test[:,1].min()-1, stop=X_test[:,1].max()+1, step=0.01))
+    fig, ax = plt.subplots(figsize=figsize)
+    Y = model_2d.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape)
+    ax.contourf(X1, X2, Y, alpha=0.5, cmap=ListedColormap(list(colors.values())))
+    ax.set(xlim=[X1.min(),X1.max()], ylim=[X2.min(),X2.max()], title="Classification regions")
+    for i in np.unique(y_test):
+        ax.scatter(X_test[y_test==i, 0], X_test[y_test==i, 1], c=colors[i], label="true "+str(i))  
+    if annotate is True:
+        for n,i in enumerate(y_test):
+            ax.annotate(n, xy=(X_test[n,0], X_test[n,1]), textcoords='offset points', ha='left', va='bottom')
+    plt.legend()
+    plt.show()
+
+    
+
+###############################################################################
+#                       EXPLAINABILITY                                        #
+###############################################################################
+'''
+Uses lime to build an a explainer.
+:parameter
+    :param X_train: array
+    :param X_names: list
+    :param model: model instance (after fitting)
+    :param Y_train: array
+    :param X_test_instance: array of size n x 1 (n,)
+    :param task: string - "classification", "regression"
+    :param top: num - top features to display
+:return
+    dtf with explanations
+'''
+def explainer(X_train, X_names, model, y_train, X_test_instance, task="classification", top=10):
+    if task=="classification":
+        explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(y_train), mode=task)
+        explained = explainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
+        dtf_explainer = pd.DataFrame(explained.as_list(), columns=['reason','effect'])
+        explained.as_pyplot_figure()
+    else:
+        dtf_explainer = 0
+    return dtf_explainer

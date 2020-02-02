@@ -671,7 +671,7 @@ def plot_w2v(nlp=None, plot_type="2d", word=None, top=20, figsize=(10,5)):
             fig.suptitle("Word: "+word, fontsize=12) if type(word) is str else fig.suptitle("Vocabulary", fontsize=12)
             for i in range(len(x)):
                 plt.scatter(x[i], y[i], c="black")
-                plt.annotate(labels[i], xy=(x[i], y[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+                plt.annotate(labels[i], xy=(x[i],y[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
             ## add center
             if type(word) is str:
                 plt.scatter(x=0, y=0, c="red")
@@ -785,7 +785,7 @@ def dl_text_classif(dic_y_mapping, embeddings, X_train, y_train, X_test, y_test,
     
     ## train
     print(model.summary())
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=1, validation_split=0.3)
     fig, ax = plt.subplots()
     ax.plot(training.history['loss'], label='loss')
     ax.grid(True)
