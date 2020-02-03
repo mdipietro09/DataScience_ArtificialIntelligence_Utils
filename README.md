@@ -1,6 +1,11 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 
+
+### Applications:
+
+
+
 ### General approach in the example notebooks:
 
 ###### 0 - Setup
