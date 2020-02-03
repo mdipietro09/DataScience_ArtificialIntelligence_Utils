@@ -1,7 +1,7 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 ###### 0 - Setup
-	* import Pckgs
+###### * import Pckgs
 	* import Data
 
 ###### 1 - Data Analysis (+ 1st Features Engineering & Selection)
