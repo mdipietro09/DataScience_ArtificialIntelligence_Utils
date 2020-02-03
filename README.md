@@ -1,11 +1,11 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 
-### General approach of the examples:
+### General approach in the example notebooks:
 
 ###### 0 - Setup
 	import Pckgs
-    	import Data
+	import Data
 
 ###### 1 - Data Analysis (+ 1st Features Engineering & Selection)
 	... Plan
