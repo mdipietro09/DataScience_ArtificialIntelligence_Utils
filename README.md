@@ -2,11 +2,11 @@
 
 
 
-### Applications:
+### Repo structure:
 
 
 
-### General approach in the example notebooks:
+### Example notebooks structure:
 
 ###### 0 - Setup
 	import Pckgs
