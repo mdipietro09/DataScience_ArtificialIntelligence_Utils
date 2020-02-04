@@ -644,6 +644,49 @@ def features_selection(dtf, y, top=10, task="classification", figsize=(20,10)):
 
 
 '''
+Computes features importance.
+:parameter
+    :param X: array
+    :param X_names: list
+    :param model: model istance (after fitting)
+    :param figsize: tuple - plot setting
+:return
+    dtf with features importance
+'''
+def features_importance(X, y, X_names, model=None, task="classification", figsize=(10,10)):
+    ## model
+    if model is None:
+        if task == "classification":
+            model = ensemble.RandomForestClassifier(n_estimators=100, criterion="entropy", random_state=0)  
+        elif task == "regression":
+            model = ensemble.RandomForestRegressor(n_estimators=100, criterion="mse", random_state=0)
+    model.fit(X,y)
+    print("--- model used ---")
+    print(model)
+    
+    ## importance dtf
+    importances = model.feature_importances_
+    dtf_importances = pd.DataFrame({"IMPORTANCE":importances, "VARIABLE":X_names}).sort_values("IMPORTANCE", ascending=False)
+    dtf_importances['cumsum'] = dtf_importances['IMPORTANCE'].cumsum(axis=0)
+    dtf_importances = dtf_importances.set_index("VARIABLE")
+    
+    ## plot
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=False, figsize=figsize)
+    fig.suptitle("Features Importance", fontsize=20)
+    ax[0].title.set_text('variables')
+    dtf_importances[["IMPORTANCE"]].sort_values(by="IMPORTANCE").plot(kind="barh", legend=False, ax=ax[0]).grid(axis="x")
+    ax[0].set(ylabel="")
+    ax[1].title.set_text('cumulative')
+    dtf_importances[["cumsum"]].plot(kind="line", linewidth=4, legend=False, ax=ax[1])
+    ax[1].set(xlabel="", xticks=np.arange(len(dtf_importances)), xticklabels=dtf_importances.index)
+    plt.xticks(rotation=70)
+    plt.grid(axis='both')
+    plt.show()
+    return dtf_importances.reset_index()
+
+
+
+'''
 Plots the binomial test of y over x.
 :parameter
     :param dtf: dataframe - input data
@@ -734,57 +777,10 @@ def fit_classif_model(model, X_train, y_train, X_test, y_test, threshold=0.5):
     model = ensemble.GradientBoostingClassifier() if model is None else model
     
     ## train/test
-    classes = ( str(np.unique(y_train)[0]), str(np.unique(y_train)[1]) )
     model.fit(X_train, y_train)
     predicted_prob = model.predict_proba(X_test)[:,1]
     predicted = (predicted_prob > threshold)
-    
-    ## Accuray e AUC
-    accuracy = metrics.accuracy_score(y_test, predicted)
-    auc = metrics.roc_auc_score(y_test, predicted_prob)
-    print("Accuracy (overall correct predictions):",  round(accuracy,3))
-    print("Auc:", round(auc,3))
-    
-    ## Precision e Recall
-    recall = metrics.recall_score(y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
-    precision = metrics.precision_score(y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
-    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
-    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
-    print("Detail:")
-    print(metrics.classification_report(y_test, predicted, target_names=classes))
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
-
-
-
-'''
-Computes features importance.
-:parameter
-    :param X_train: array
-    :param X_names: list
-    :param model: model istance (after fitting)
-    :param figsize: tuple - plot setting
-:return
-    dtf with features importance
-'''
-def features_importance(X_train, X_names, model, figsize=(10,10)):
-    ## importance dtf
-    importances = model.feature_importances_
-    dtf_importances = pd.DataFrame({"IMPORTANCE":importances, "VARIABLE":X_names}).sort_values("IMPORTANCE", ascending=False)
-    dtf_importances['cumsum'] = dtf_importances['IMPORTANCE'].cumsum(axis=0)
-    dtf_importances = dtf_importances.set_index("VARIABLE")
-    ## plot
-    fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=False, figsize=figsize)
-    fig.suptitle("Features Importance", fontsize=20)
-    ax[0].title.set_text('variables')
-    dtf_importances[["IMPORTANCE"]].sort_values(by="IMPORTANCE").plot(kind="barh", legend=False, ax=ax[0]).grid(axis="x")
-    ax[0].set(ylabel="")
-    ax[1].title.set_text('cumulative')
-    dtf_importances[["cumsum"]].plot(kind="line", linewidth=4, legend=False, ax=ax[1])
-    ax[1].set(xlabel="", xticks=np.arange(len(dtf_importances)), xticklabels=dtf_importances.index)
-    plt.xticks(rotation=70)
-    plt.grid(axis='both')
-    plt.show()
-    return dtf_importances.reset_index()
+    return model, predicted_prob, predicted
 
 
 
@@ -904,13 +900,7 @@ def fit_ann_classif(X_train, y_train, X_test, y_test, model=None, batch_size=32,
     ## predict
     predicted_prob = model.predict(X_test)
     predicted = (predicted_prob > threshold)
-    classes = ( str(np.unique(y_train)[0]), str(np.unique(y_train)[1]) )
-    print( "accuracy =", metrics.accuracy_score(y_test, predicted) )
-    print( "auc =", metrics.roc_auc_score(y_test, predicted_prob) )
-    print( "log_loss =", metrics.log_loss(y_test, predicted_prob) )
-    print( " " )
-    print( metrics.classification_report(y_test, predicted, target_names=classes) )
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+    return model, predicted_prob, predicted
 
 
 
@@ -922,16 +912,30 @@ Evaluates a model performance.
     :param predicted_prob: array
 '''
 def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
-    classes = (np.unique(y_test)[0], np.unique(y_test)[1])
+    classes = np.unique(y_test)
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
     
-    ## confusion matrix
+    ## Accuray e AUC
+    accuracy = metrics.accuracy_score(y_test, predicted)
+    auc = metrics.roc_auc_score(y_test, predicted_prob)
+    print("Accuracy (overall correct predictions):",  round(accuracy,3))
+    print("Auc:", round(auc,3))
+    
+    ## Precision e Recall
+    recall = metrics.recall_score(y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
+    precision = metrics.precision_score(y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
+    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
+    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
+    print("Detail:")
+    print(metrics.classification_report(y_test, predicted, target_names=[str(i) for i in classes]))
+       
+    ## Plot confusion matrix
     cm = metrics.confusion_matrix(y_test, predicted, labels=classes)
     sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
     ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
     ax[0].set_yticklabels(labels=classes, rotation=0)
  
-    ## roc
+    ## Plot roc
     fpr, tpr, thresholds = metrics.roc_curve(y_test, predicted_prob)
     roc_auc = metrics.auc(fpr, tpr)     
     ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
@@ -940,7 +944,7 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
     ax[1].legend(loc="lower right")
     ax[1].grid(True)
 
-    ## precision-recall curve
+    ## Plot precision-recall curve
     precision, recall, thresholds = metrics.precision_recall_curve(y_test, predicted_prob)
     ax[2].plot(recall, precision, lw=3)
     ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
@@ -964,21 +968,16 @@ Fits a sklearn regression model.
 :return
     model fitted and predictions
 '''
-def fit_regr_model(model, X_train, Y_train, X_test, Y_test, scalerY=None):  
+def fit_regr_model(model, X_train, y_train, X_test, y_test, scalerY=None):  
     ## model
     model = linear_model.LinearRegression() if model is None else model
     
     ## train/test
-    model.fit(X_train, Y_train)
+    model.fit(X_train, y_train)
     predicted = model.predict(X_test)
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted)
-    
-    ## kpi
-    print("R2:", metrics.r2_score(Y_test, predicted))
-    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
-    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
-    return {"model":model, "predicted":predicted}
+    return model, predicted
         
 
 
@@ -1004,7 +1003,7 @@ def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_si
     
     ## fit
     print(model.summary())
-    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs)
+    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
@@ -1016,10 +1015,7 @@ def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_si
     predicted = model.predict(X_test)
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted)
-    print("R2:", metrics.r2_score(Y_test, predicted))
-    print("Explained variance:", metrics.explained_variance_score(Y_test, predicted))
-    print("Mean Absolute Error:", metrics.mean_absolute_error(Y_test, predicted))
-    return {"model":model, "predicted":predicted}
+    return model, predicted
 
 
 
@@ -1029,13 +1025,20 @@ Evaluates a model performance.
     :param Y_test: array
     :param predicted: array
 '''
-def evaluate_regr_model(Y_test, predicted, figsize=(20,10)):
+def evaluate_regr_model(y_test, predicted, figsize=(20,10)):
+    ## Kpi
+    print("R2:", round(metrics.r2_score(y_test, predicted), 3))
+    print("Explained variance:", round(metrics.explained_variance_score(y_test, predicted), 3))
+    print("Mean Absolute Error:", round(metrics.mean_absolute_error(y_test, predicted), 3))
+    print("Mean Absolute Error %:", round(np.mean(np.abs((y_test-predicted)/predicted))*100, 3))
+    
+    ## Plot
     from statsmodels.graphics.api import abline_plot
-    fig, ax = plt.subplots()
-    ax.scatter(predicted, Y_test)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(predicted, y_test, color="black")
     abline_plot(intercept=0, slope=1, horiz=None, vert=None, model_results=None, ax=ax)
-    ax.set_ylabel('Y True')
-    ax.set_xlabel('Y Predicted')
+    ax.grid(True)
+    ax.set(xlabel="Predicted", ylabel="True", title="Predicted vs True")
     plt.show()
     
 
@@ -1122,8 +1125,8 @@ Plots a 2-features classification model result.
 def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=False, figsize=(10,10)):
     ## n features > 2d
     if X_train.shape[1] > 2:
-        lda = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
-        X_train, X_test = lda["X"]
+        pca = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
+        X_train, X_test = pca["X"]
      
     ## fit 2d model
     print("--- fitting 2d model ---")
@@ -1147,7 +1150,36 @@ def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=
             ax.annotate(n, xy=(X_test[n,0], X_test[n,1]), textcoords='offset points', ha='left', va='bottom')
     plt.legend()
     plt.show()
-
+    
+  
+    
+'''
+'''
+def plot3d_regr_model(X_train, y_train, X_test, y_test, scalerY=None, model=None, rotate=(0,0), figsize=(10,10)):
+    ## n features > 2d
+    if X_train.shape[1] > 2:
+        pca = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
+        X_train, X_test = pca["X"]
+    
+    ## fit 2d model
+    print("--- fitting 2d model ---")
+    model_2d = linear_model.LinearRegression() if model is None else model
+    model_2d.fit(X_train, y_train)
+    
+    ## plot predictions
+    print("--- plotting test set ---")
+    from mpl_toolkits.mplot3d import Axes3D
+    ax = Axes3D(plt.figure(figsize=figsize), elev=rotate[0], azim=rotate[1])
+    ax.scatter(X_test[:,0], X_test[:,1], y_test, color="black")
+    X1 = np.array([[X_test.min(), X_test.min()], [X_test.max(), X_test.max()]])
+    X2 = np.array([[X_test.min(), X_test.max()], [X_test.min(), X_test.max()]])
+    Y = model_2d.predict(np.array([[X_test.min(), X_test.min(), X_test.max(), X_test.max()], 
+                                   [X_test.min(), X_test.max(), X_test.min(), X_test.max()]]).T).reshape((2,2))
+    Y = scalerY.inverse_transform(Y) if scalerY is not None else Y
+    ax.plot_surface(X1, X2, Y, alpha=0.5)
+    ax.set(zlabel="Y", title="Regression plane", xticklabels=[], yticklabels=[])
+    plt.show()
+    
     
 
 ###############################################################################
@@ -1167,11 +1199,16 @@ Uses lime to build an a explainer.
     dtf with explanations
 '''
 def explainer(X_train, X_names, model, y_train, X_test_instance, task="classification", top=10):
-    if task=="classification":
+    if task == "classification":
         explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(y_train), mode=task)
         explained = explainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
         dtf_explainer = pd.DataFrame(explained.as_list(), columns=['reason','effect'])
         explained.as_pyplot_figure()
-    else:
-        dtf_explainer = 0
+        
+    elif task == "regression":
+        explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names="Y", mode=task)
+        explained = explainer.explain_instance(X_test_instance, model.predict, num_features=top)
+        dtf_explainer = pd.DataFrame(explained.as_list(), columns=['reason','effect'])
+        explained.as_pyplot_figure()
+    
     return dtf_explainer
