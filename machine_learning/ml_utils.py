@@ -767,12 +767,11 @@ Fits a sklearn classification model.
     :param X_train: array
     :param y_train: array
     :param X_test: array
-    :param y_test: array
     :param threshold: num - predictions > threshold are 1, otherwise 0 (only for classification)
 :return
     model fitted and predictions
 '''
-def fit_classif_model(model, X_train, y_train, X_test, y_test, threshold=0.5):
+def fit_classif_model(model, X_train, y_train, X_test, threshold=0.5):
     ## model
     model = ensemble.GradientBoostingClassifier() if model is None else model
     
@@ -860,16 +859,15 @@ def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scorin
 Fits a keras 3-layer artificial neural network.
 :parameter
     :param X_train: array
-    :param Y_train: array
+    :param y_train: array
     :param X_test: array
-    :param Y_test: array
     :param batch_size: num - keras batch
     :param epochs: num - keras epochs
     :param threshold: num - predictions > threshold are 1, otherwise 0
 :return
     model fitted and predictions
 '''
-def fit_ann_classif(X_train, y_train, X_test, y_test, model=None, batch_size=32, epochs=100, threshold=0.5):
+def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, threshold=0.5):
     ## model
     if model is None:
         ### initialize
@@ -907,7 +905,7 @@ def fit_ann_classif(X_train, y_train, X_test, y_test, model=None, batch_size=32,
 '''
 Evaluates a model performance.
 :parameter
-    :param Y_test: array
+    :param y_test: array
     :param predicted: array
     :param predicted_prob: array
 '''
@@ -961,14 +959,13 @@ Fits a sklearn regression model.
 :parameter
     :param model: model object - model to fit (before fitting)
     :param X_train: array
-    :param Y_train: array
+    :param y_train: array
     :param X_test: array
-    :param Y_test: array
     :param scalerY: scaler object (only for regression)
 :return
     model fitted and predictions
 '''
-def fit_regr_model(model, X_train, y_train, X_test, y_test, scalerY=None):  
+def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):  
     ## model
     model = linear_model.LinearRegression() if model is None else model
     
@@ -983,7 +980,7 @@ def fit_regr_model(model, X_train, y_train, X_test, y_test, scalerY=None):
 
 '''
 '''
-def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_size=32, epochs=100):
+def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
     ## model
     if model is None:
         ### initialize
@@ -1003,7 +1000,7 @@ def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_si
     
     ## fit
     print(model.summary())
-    training = model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
+    training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
@@ -1022,7 +1019,7 @@ def fit_ann_regr(X_train, Y_train, X_test, Y_test, scalerY, model=None, batch_si
 '''
 Evaluates a model performance.
 :parameter
-    :param Y_test: array
+    :param y_test: array
     :param predicted: array
 '''
 def evaluate_regr_model(y_test, predicted, figsize=(20,10)):
@@ -1212,3 +1209,90 @@ def explainer(X_train, X_names, model, y_train, X_test_instance, task="classific
         explained.as_pyplot_figure()
     
     return dtf_explainer
+
+
+
+'''
+'''
+def utils_ann_config(model):
+    lst_layers = []
+    for layer in model.layers:
+        if "drop" in layer.name:
+            dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":0, 
+                         "out":int(layer.output.shape[-1]), "activation":None,
+                         "params":0, "bias":0} 
+        else:
+            dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":layer.units, 
+                         "out":int(layer.output.shape[-1]), "activation":layer.get_config()["activation"],
+                         "params":layer.get_weights()[0], "bias":layer.get_weights()[1]} 
+        lst_layers.append(dic_layer)
+    return lst_layers
+
+
+
+'''
+'''
+def visualize_ann(model, titles=False, figsize=(10,8)):
+    ## get layers info
+    lst_layers = utils_ann_config(model)
+    layer_sizes, layer_infos = [], []
+    for i,layer in enumerate(lst_layers):
+        if "drop" not in layer["name"]:
+            layer_sizes.append(layer["in"] if i==0 else layer["out"])
+            layer_infos.append( (layer["activation"], layer["params"], layer["bias"]) )
+    
+    ## fig setup
+    fig = plt.figure(figsize=figsize)
+    ax = fig.gca()
+    ax.set(title="Neural Network structure")
+    ax.axis('off')
+    left, right, bottom, top = 0.1, 0.9, 0.1, 0.9
+    x_space = (right-left) / float(len(layer_sizes)-1)
+    y_space = (top-bottom) / float(max(layer_sizes))
+    p = 0.025
+    
+    ## nodes
+    for i,n in enumerate(layer_sizes):
+        top_on_layer = y_space*(n-1)/2.0 + (top+bottom)/2.0
+        
+        ### add titles
+        if titles is True:
+            if i == 0:
+                plt.text(x=left, y=top, fontsize=10, s="Input layer")
+                plt.text(x=left, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
+                plt.text(x=left, y=top-2*p, fontsize=8,
+                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+            elif i == len(layer_sizes)-1:
+                plt.text(x=right, y=top, fontsize=10, s="Output layer")
+                plt.text(x=right, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
+                plt.text(x=right, y=top-2*p, fontsize=8,
+                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+            else:
+                plt.text(x=left+i*x_space, y=top, fontsize=10, s="Hidden layer "+str(i))
+                plt.text(x=left+i*x_space, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
+                plt.text(x=left+i*x_space, y=top-2*p, fontsize=8,
+                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+        
+        ### circles
+        for m in range(n):
+            color = "limegreen" if (i == 0) or (i == len(layer_sizes)-1) else "red" 
+            circle = plt.Circle(xy=(left+i*x_space, top_on_layer-m*y_space-4*p), radius=y_space/4.0, color=color, ec='k', zorder=4)
+            ax.add_artist(circle)
+            
+            ### add text
+            if i == 0:
+                plt.text(x=left-4*p, y=top_on_layer-m*y_space-4*p, fontsize=10, s=r'$X_{'+str(m+1)+'}$')
+            elif i == len(layer_sizes)-1:
+                plt.text(x=right+4*p, y=top_on_layer-m*y_space-4*p, fontsize=10, s=r'$y_{'+str(m+1)+'}$')
+            else:
+                plt.text(x=left+i*x_space+p, y=top_on_layer-m*y_space+(y_space/8.+0.01*y_space)-4*p, fontsize=10, s=r'$H_{'+str(m+1)+'}$')
+    
+    ## links
+    for i, (n_a, n_b) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
+        layer_top_a = y_space*(n_a-1)/2. + (top+bottom)/2. -4*p
+        layer_top_b = y_space*(n_b-1)/2. + (top+bottom)/2. -4*p
+        for m in range(n_a):
+            for o in range(n_b):
+                line = plt.Line2D([i*x_space+left, (i+1)*x_space+left], [layer_top_a-m*y_space, layer_top_b-o*y_space], c='k', alpha=0.5)
+                ax.add_artist(line)
+    plt.show()
