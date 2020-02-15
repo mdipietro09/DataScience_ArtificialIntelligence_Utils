@@ -2,7 +2,7 @@ matplotlib==3.1.2
 numpy==1.16.4
 scikit-learn==0.22
 keras==2.3.1 
-tensorflow==1.13.2
+tensorflow==1.15.2
 opencv-python==3.4.2.16
 opencv-contrib-python==3.4.2.16
 imageai==2.1.5
