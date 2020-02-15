@@ -419,7 +419,7 @@ def retrain_ner_spacy(train_data, output_dir, model="blank", n_iter=100):
 
 
 ###############################################################################
-#                    TEXT MULTI-LABEL CLASSIFICATION                          #
+#             MODEL DESIGN & TESTING - MULTILABEL CLASSIFICATION              #
 ###############################################################################
 '''
 '''
