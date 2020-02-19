@@ -3,8 +3,9 @@ import cv2
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+from imageai import Detection
+from imageai.Detection.Custom import DetectionModelTrainer
 from tensorflow.keras import utils, models, layers, applications
-from imageai import Prediction, Detection
 import pytesseract
 
 
@@ -13,6 +14,7 @@ import pytesseract
 #                   IMG ANALYSIS                                              #
 ###############################################################################
 '''
+Plot a single image with pyplot.
 '''
 def utils_plot_img(img, title=None, figsize=(20,13)):
     fig, ax = plt.subplots(figsize=figsize)
@@ -22,6 +24,7 @@ def utils_plot_img(img, title=None, figsize=(20,13)):
     
     
 '''
+Load a single image with opencv.
 '''
 def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg'], plot=True, figsize=(20,13)):
     if file.endswith(tuple(ext)):
@@ -33,70 +36,132 @@ def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg'], plot=True, figsiz
     else:
         print("file extension unknown")
     
-   
+
 
 '''
+Load a folder of imgs.
 '''
-def load_imgs(dirpath):
+def load_multi_imgs(dirpath):
     lst_imgs =[]
     for img in os.listdir(dirpath):
         try:
             t_img = utils_load_img(dirpath=dirpath, file=img, plot=False)
             lst_imgs.append(t_img)
         except Exception as e:
-            print(e)
+            print("failed on:", img, "| error:", e)
             pass
     return lst_imgs
 
 
 
 '''
+Plot n images in (1 row) x (n columns).
 '''
-def plot_2_imgs(img1, img2, title=None, figsize=(20,13)):
-    fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=False, figsize=figsize)
-    fig.suptitle(title, fontsize=20)
-    ax[0].imshow(img1)
-    ax[1].imshow(img2)
+def plot_multi_imgs(lst_imgs, lst_titles=[], figsize=(20,13)):
+    fig, ax = plt.subplots(nrows=1, ncols=len(lst_imgs), sharex=False, sharey=False, figsize=figsize)
+    if len(lst_titles) == 1:
+        fig.suptitle(lst_titles[0], fontsize=20)
+    for i,img in enumerate(lst_imgs):
+        ax[i].imshow(img)
+        if len(lst_titles) > 1:
+            ax[i].set(title=lst_titles[i])
     plt.show()
+    
 
-
+    
+'''
+Plot univariate and bivariate colors histogram.
+'''
+def utils_color_distributions(lst_imgs, lst_y=None, figsize=(20,13)):
+    ## univariate
+    if lst_y is None:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.set(xlim=[0,256], xlabel='bin', ylabel="pixel count", title=str(len(lst_imgs))+" imgs")
+        ax.grid(True)
+        for i,col in enumerate(("r","g","b")):
+            hist = cv2.calcHist(images=lst_imgs, channels=[i], mask=None, histSize=[256], ranges=[0,256])
+            ax.plot(hist, color=col)
+    ## bivariate
+    else:
+        ### create samples
+        dic_samples = {y:[] for y in np.unique(lst_y)}
+        for i,x in enumerate(lst_imgs):
+            dic_samples[lst_y[i]].append(x)
+        ### plot
+        fig, ax = plt.subplots(nrows=len(dic_samples.keys()), ncols=1, sharex=True, figsize=figsize)
+        for n,y in enumerate(dic_samples.keys()):
+            ax[n].set(xlim=[0,256], xlabel='bin', ylabel="pixel count", title=str(y)+": "+str(len(dic_samples[y]))+" imgs")
+            ax[n].grid(True)
+            for i,col in enumerate(("r","g","b")):
+                hist = cv2.calcHist(images=dic_samples[y], channels=[i], mask=None, histSize=[256], ranges=[0,256])
+                ax[n].plot(hist, color=col)
+    plt.show()
+    
+    
 
 '''
+Preprocess a single image.
 '''
-def utils_preprocess_img(img, size=224, remove_color=False, plot=False, figsize=(20,13)):
-    ## original ---> height x width x RGBchannels(3)
-    if plot == True:
-        utils_plot_img(img, figsize=figsize, title="original")
-        print(img.shape)
+def utils_preprocess_img(img, resize=224, denoise=True, remove_color=True, morphology=True, segmentation=True, plot=True, figsize=(20,13)):
+    ## original
+    img_processed = img
+    lst_imgs = [img_processed]
+    lst_titles = ["original:  "+str(img_processed.shape)]
     
     ## resize
-    img_processed = cv2.resize(img, (size,size), interpolation=cv2.INTER_LINEAR)
-    if plot == True:
-        plot_img(img_processed, figsize=figsize, title="resized")
-        print(img_processed.shape)
-    
-    ## remove color
-    if remove_color == True:
-        img_processed = cv2.cvtColor(img_processed, cv2.COLOR_RGB2GRAY)
-        if plot == True:
-            plot_img(img_processed, figsize=figsize, title="grayscale")
-            print(img_processed.shape)
+    if resize is not False:
+        img_processed = cv2.resize(img_processed, (resize,resize), interpolation=cv2.INTER_LINEAR)
+        lst_imgs.append(img_processed)
+        lst_titles.append("resized:  "+str(img_processed.shape))
     
     ## denoise (blur)
-    img_processed = cv2.GaussianBlur(img_processed, (5,5), 0)
-    if plot == True:
-        plot_img(img_processed, figsize=figsize, title="blurred")
-        print(img_processed.shape)
+    if denoise is True:
+        img_processed = cv2.GaussianBlur(img_processed, (5,5), 0)
+        lst_imgs.append(img_processed)
+        lst_titles.append("blurred:  "+str(img_processed.shape))
+    
+    ## remove color
+    if remove_color is True:
+        img_processed = cv2.cvtColor(img_processed, cv2.COLOR_RGB2GRAY)
+        lst_imgs.append(img_processed)
+        lst_titles.append("removed color:  "+str(img_processed.shape))
+    
+    ## morphology
+    if morphology is True:
+        if len(img_processed.shape) > 2:
+            ret, mask = cv2.threshold(img_processed, 255/2, 255, cv2.THRESH_BINARY)
+        else:
+            mask = cv2.adaptiveThreshold(img_processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        img_processed = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3),np.uint8), iterations=2)   
+        lst_imgs.append(img_processed)
+        lst_titles.append("morphology:  "+str(img_processed.shape))
+    
+        ## segmentation (after morphology)
+        if segmentation is True:
+            background = cv2.dilate(img_processed, np.ones((3,3),np.uint8), iterations=3)
+            if len(img_processed.shape) > 2:
+                print("--- Need to remove color to segment ---")
+            else:
+                ret, foreground = cv2.threshold(cv2.distanceTransform(img_processed, cv2.DIST_L2, 5), 
+                                                0.7 * cv2.distanceTransform(img_processed, cv2.DIST_L2, 5).max(), 
+                                                255, 0)
+                foreground = np.uint8(foreground)
+                ret, markers = cv2.connectedComponents(foreground)
+                markers = markers + 1
+                unknown = cv2.subtract(background, foreground)
+                markers[unknown == 255] = 0
+                img_processed = cv2.watershed(cv2.resize(img, (224,224), interpolation=cv2.INTER_LINEAR), markers)
+                lst_imgs.append(img_processed)
+                lst_titles.append("segmented:  "+str(img_processed.shape))
+    if (segmentation is True) and (morphology is False):
+        print("--- Need to do morphology to segment ---")
     
     ## scale
     img_processed = img_processed/255
-    if plot == True:
-        plot_img(img_processed, figsize=figsize, title="scaled")
-        print(img_processed.shape)
     
-    ## output
-    if plot == True:
-        plot_2_imgs(img1=img, img2=img_processed, figsize=figsize) 
+    ## plot
+    if plot is True:
+        plot_multi_imgs(lst_imgs, lst_titles, figsize)
     return img_processed
 
 
@@ -105,24 +170,67 @@ def utils_preprocess_img(img, size=224, remove_color=False, plot=False, figsize=
 #                  OBJECT DETECTION                                           #
 ###############################################################################
 '''
+Loads yolo model with imageai.
 '''
-def obj_detection_imageai(img, modelpath, modelfile="yolo.h5", plot=True, figsize=(20,13)):
-    ## load imageAI model YOLO
-    model = Detection.ObjectDetection()
-    model.setModelTypeAsYOLOv3()
-    model.setModelPath( modelpath + modelfile )
-    model.loadModel()
-    
-    ## detect
-    detected_img, lst_detections = model.detectCustomObjectsFromImage(input_image=img, input_type="array", 
-                                                                      output_type="array",
-                                                                      minimum_percentage_probability=30)
-    lst_out = [ (dic["name"], dic["percentage_probability"]) for dic in lst_detections]
+def load_yolo(modelfile="yolo.h5", confjson=None):
+    yolo = Detection.ObjectDetection()
+    yolo.setModelTypeAsYOLOv3()
+    yolo.setModelPath(modelfile)
+    if confjson is not None:
+        yolo.setJsonPath(confjson)
+    yolo.loadModel()
+    return yolo
+
+
+
+'''
+Predict with yolo and plot rectangles.
+'''
+def obj_detect_yolo(img, yolo, min_prob=70, plot=True, figsize=(20,13)):
+    predicted_img, preds = yolo.detectCustomObjectsFromImage(input_image=img, custom_objects=None,
+                                                             input_type="array", output_type="array",
+                                                             minimum_percentage_probability=min_prob,
+                                                             display_percentage_probability=True,
+                                                             display_object_name=True)
     if plot == True:
-        plot_img(detected_img, figsize=figsize)
-        print(lst_out)
-    return lst_out
+        utils_plot_img(predicted_img, figsize=figsize)
+    return preds
+
+
+
+'''
+Retrain yolo model with custom labeled images.
+:parameter
+    :param lst_y: list of strings of unique labels
+    :param train_path: str - directory with images, by default it searches for this scrtuture:
+                        /train/images/img_1.jpg, img_2.jpg ...
+                        /train/annotations/img_1.xml, img_2.xml ...
+                        /validation/images/img_151.jpg, img_152.jpg ...
+                        /validation/annotations/img_151.xml, img_152.xml ...
+    :param modelfile_transfer: str - "models/yolo.h5" or empty string "" to train from scratch
+'''
+def train_yolo(lst_y, train_path="imgs/", transfer_modelfile="", epochs=5):
+    ## setup
+    yolo = DetectionModelTrainer()
+    yolo.setModelTypeAsYOLOv3()
+    yolo.setDataDirectory(data_directory=train_path)
+    yolo.setTrainConfig(object_names_array=lst_y, batch_size=4, num_experiments=epochs, 
+                        train_from_pretrained_model=transfer_modelfile)
+
+    ## train
+    yolo.trainModel()
     
+    ## evaluate
+    # metrics = yolo.evaluateModel(model_path="hololens/models", json_path="hololens/json/detection_config.json", 
+    #                             iou_threshold=0.5, object_threshold=0.3, nms_threshold=0.5)
+    
+    ## laod model
+    print("--- Loading model ---")
+    #for h5 in os.listdir(train_path+"/model/"):
+        
+    #yolo = load_yolo(modelfile=train_path+"/model/custom_yolo.h5", confjson=train_path+"/json/detection_config.json")
+    #return yolo    
+
 
 
 ###############################################################################
@@ -195,27 +303,7 @@ def fit_cnn(X, y, batch_size=32, epochs=100, figsize=(20,13)):
 
 '''
 '''
-def evaluate_cnn(model, X_test, Y_test):
-    return 0
-
-
-
-'''
-'''
-def predict_cnn(img, model, size=224, remove_color=False, dic_mapp_y=None):
-    img_preprocessed = single_img_preprocessing(img, size=size, remove_color=remove_color, plot=False)
-    img_preprocessed = np.expand_dims(img_preprocessed, axis=0)
-    pred = model.predict( img_preprocessed )        
-    return dic_mapp_y[int(pred[0][0])] if dic_mapp_y is not None else int(pred[0][0])
-
-
-
-###############################################################################
-#                   TRANSFER LEARNING                                         #
-###############################################################################
-'''
-'''
-def transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", layers_in=6, figsize=(20,13)):
+def fit_transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", layers_in=6, figsize=(20,13)):
     ## load pre-trained model
     if modelname == "ResNet50":
         model = applications.resnet50.ResNet50(weights='imagenet')          
@@ -262,6 +350,23 @@ def transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", la
 
 '''
 '''
+def evaluate_cnn(model, X_test, Y_test):
+    return 0
+
+
+
+'''
+'''
+def predict_cnn(img, model, size=224, remove_color=False, dic_mapp_y=None):
+    img_preprocessed = single_img_preprocessing(img, size=size, remove_color=remove_color, plot=False)
+    img_preprocessed = np.expand_dims(img_preprocessed, axis=0)
+    pred = model.predict( img_preprocessed )        
+    return dic_mapp_y[int(pred[0][0])] if dic_mapp_y is not None else int(pred[0][0])
+
+
+
+'''
+'''
 def img_classification_keras(img, modelname="MobileNet"):
     try:
         ## prepare data and call model
@@ -286,29 +391,8 @@ def img_classification_keras(img, modelname="MobileNet"):
     except Exception as e:
         print("--- got error ---")
         print(e)
-
-
-
-'''
-'''
-def img_classification_imageai(img, modelpath, modelfile="resnet50_weights_tf_dim_ordering_tf_kernels.h5"):
-    try:
-        ## load imageAI model ResNet50 
-        model = Prediction.ImagePrediction()        
-        model.setModelTypeAsResNet()
-        model.setModelPath( modelpath + modelfile )
-        model.loadModel()
         
-        ## predict
-        lst_preds, lst_probs = model.predictImage(img, input_type="array", result_count=5)
-        lst_out = [ (pred, prob) for pred, prob in zip(lst_preds, lst_probs) ]
-        return lst_out
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
-        
+
 
 ###############################################################################
 #                               OCR                                           #

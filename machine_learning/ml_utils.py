@@ -16,6 +16,7 @@ from tensorflow.keras import models, layers
 #                       DATA ANALYSIS                                         #
 ###############################################################################
 '''
+Recognize whether a column is numeric or categorical.
 '''
 def utils_recognize_type(dtf, col, max_cat=20):
     if (dtf[col].dtype == "O") | (dtf[col].nunique() < max_cat):
@@ -218,6 +219,7 @@ def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
 
 
 '''
+Plots a bivariate analysis using Nan and not-Nan as categories.
 '''
 def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(20,10)):
     dtf_NA = dtf[[na_x, y]]
@@ -227,6 +229,7 @@ def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(20,10)):
 
 
 '''
+Plots a bivariate analysis with time variable.
 '''
 def ts_analysis(dtf, x, y, max_cat=20, figsize=(20,10)):
     if utils_recognize_type(dtf, y, max_cat) == "cat":
@@ -239,6 +242,7 @@ def ts_analysis(dtf, x, y, max_cat=20, figsize=(20,10)):
 
   
 '''
+plots multivariate analysis.
 '''
 def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
     if utils_recognize_type(dtf, y, max_cat) == "cat":
@@ -784,6 +788,7 @@ def fit_classif_model(model, X_train, y_train, X_test, threshold=0.5):
 
 
 '''
+Perform k-fold validation.
 '''
 def utils_kfold_validation(model, X_train, y_train, cv=10, figsize=(10,10)):
     cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
@@ -856,7 +861,7 @@ def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scorin
 
 
 '''
-Fits a keras 3-layer artificial neural network.
+Fits a keras artificial neural network.
 :parameter
     :param X_train: array
     :param y_train: array
@@ -979,6 +984,16 @@ def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):
 
 
 '''
+Fits a keras artificial neural network.
+:parameter
+    :param X_train: array
+    :param y_train: array
+    :param X_test: array
+    :param batch_size: num - keras batch
+    :param epochs: num - keras epochs
+    :param scalerY: scaler object (only for regression)
+:return
+    model fitted and predictions
 '''
 def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
     ## model
@@ -1151,6 +1166,7 @@ def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=
   
     
 '''
+Plot regression plane.
 '''
 def plot3d_regr_model(X_train, y_train, X_test, y_test, scalerY=None, model=None, rotate=(0,0), figsize=(10,10)):
     ## n features > 2d
@@ -1213,6 +1229,7 @@ def explainer(X_train, X_names, model, y_train, X_test_instance, task="classific
 
 
 '''
+Extract info for each layer in a keras model.
 '''
 def utils_ann_config(model):
     lst_layers = []
@@ -1231,6 +1248,7 @@ def utils_ann_config(model):
 
 
 '''
+Plot the structure of a keras neural network.
 '''
 def visualize_ann(model, titles=False, figsize=(10,8)):
     ## get layers info

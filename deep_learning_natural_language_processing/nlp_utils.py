@@ -24,6 +24,7 @@ import random
 #                  TEXT ANALYSIS                                              #
 ###############################################################################
 '''
+Plot univariate and bivariate distributions.
 '''
 def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)):
     ## univariate
@@ -50,6 +51,7 @@ def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)
 
 
 '''
+Detect language of text.
 '''
 def add_detect_lang(dtf, column):
     dtf['lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")    
@@ -334,6 +336,7 @@ def add_ner_spacy(dtf, column, ner=None, tag_type="all", unique=False, create_fe
 
 
 '''
+Compute frequency of spacy tags.
 '''
 def tags_freq(dtf, column, top=30, figsize=(10,10)):   
     tags_list = dtf[column].sum()
@@ -422,6 +425,7 @@ def retrain_ner_spacy(train_data, output_dir, model="blank", n_iter=100):
 #             MODEL DESIGN & TESTING - MULTILABEL CLASSIFICATION              #
 ###############################################################################
 '''
+Transform an array of strings into an array of int.
 '''
 def encode_variable(dtf, column):
     dtf[column+"_id"] = dtf[column].factorize(sort=True)[0]
@@ -479,6 +483,7 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
 #                     BAG OF WORDS (VECTORIZER)                               #
 ###############################################################################
 '''
+Compute freqeuncy of features in a sparse matrix.
 '''
 def utils_features_freq(dic_vocabulary, X, top=20, figsize=(10,5)):
     lst_score = [(idx, word, X.sum(axis=0)[0,idx]) for word,idx in dic_vocabulary.items()]
@@ -534,6 +539,7 @@ def fit_bow(corpus, vectorizer=None, vocabulary=None, top=None, figsize=(10,5)):
 
 
 '''
+Perform feature selection.
 '''
 def features_selection(X, y, vectorizer_fitted, top=None):
     top_by_cat = int(top/len(np.unique(y))) if top is not None else top
@@ -555,6 +561,7 @@ def features_selection(X, y, vectorizer_fitted, top=None):
 
 
 '''
+Transform a sparse matrix into a dtf with selected features only.
 '''
 def sparse2dtf(X, dic_vocabulary, lst_words):
     dtf_X = pd.DataFrame()
