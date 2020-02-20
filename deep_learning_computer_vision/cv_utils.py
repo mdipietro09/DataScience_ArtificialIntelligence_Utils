@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from imageai import Detection
-from imageai.Detection.Custom import DetectionModelTrainer
+from imageai.Detection.Custom import DetectionModelTrainer, CustomObjectDetection
 from tensorflow.keras import utils, models, layers, applications
 import pytesseract
 
@@ -15,18 +15,29 @@ import pytesseract
 ###############################################################################
 '''
 Plot a single image with pyplot.
+:parameter
+    :param img: image array
+    :param mask: image array
+    :param rect: list of tuples - [(x1,y1), (x2,y2)]
+    :param title: string
 '''
-def utils_plot_img(img, title=None, figsize=(20,13)):
+def utils_plot_img(img, mask=None, rect=None, title=None, figsize=(20,13)):
+    plot_img = img.copy()
+    if mask is not None:
+        mask = cv2.resize(mask, (img.shape[0],img.shape[1]), interpolation=cv2.INTER_LINEAR)
+        plot_img = cv2.bitwise_and(plot_img, mask)
+    if rect is not None:
+        plot_img = cv2.rectangle(plot_img, rect[0], rect[1], (255,0,0), 4)
     fig, ax = plt.subplots(figsize=figsize)
     fig.suptitle(title, fontsize=20)
-    plt.imshow(img)
+    plt.imshow(plot_img)
 
     
     
 '''
 Load a single image with opencv.
 '''
-def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg'], plot=True, figsize=(20,13)):
+def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg','.JPG'], plot=True, figsize=(20,13)):
     if file.endswith(tuple(ext)):
         img = cv2.imread( dirpath+file, cv2.IMREAD_UNCHANGED )
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -36,22 +47,6 @@ def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg'], plot=True, figsiz
     else:
         print("file extension unknown")
     
-
-
-'''
-Load a folder of imgs.
-'''
-def load_multi_imgs(dirpath):
-    lst_imgs =[]
-    for img in os.listdir(dirpath):
-        try:
-            t_img = utils_load_img(dirpath=dirpath, file=img, plot=False)
-            lst_imgs.append(t_img)
-        except Exception as e:
-            print("failed on:", img, "| error:", e)
-            pass
-    return lst_imgs
-
 
 
 '''
@@ -67,6 +62,23 @@ def plot_multi_imgs(lst_imgs, lst_titles=[], figsize=(20,13)):
             ax[i].set(title=lst_titles[i])
     plt.show()
     
+    
+    
+'''
+Load a folder of imgs.
+'''
+def load_multi_imgs(dirpath, ext=['.png','.jpg','.jpeg','.JPG']):
+    lst_imgs =[]
+    for file in os.listdir(dirpath):
+        try:
+            if file.endswith(tuple(ext)):
+                img = utils_load_img(dirpath=dirpath, file=file, ext=ext, plot=False)
+                lst_imgs.append(img)
+        except Exception as e:
+            print("failed on:", file, "| error:", e)
+            pass
+    return lst_imgs
+
 
     
 '''
@@ -173,7 +185,7 @@ def utils_preprocess_img(img, resize=224, denoise=True, remove_color=True, morph
 Loads yolo model with imageai.
 '''
 def load_yolo(modelfile="yolo.h5", confjson=None):
-    yolo = Detection.ObjectDetection()
+    yolo = Detection.ObjectDetection() if confjson is None else CustomObjectDetection()
     yolo.setModelTypeAsYOLOv3()
     yolo.setModelPath(modelfile)
     if confjson is not None:
@@ -187,11 +199,10 @@ def load_yolo(modelfile="yolo.h5", confjson=None):
 Predict with yolo and plot rectangles.
 '''
 def obj_detect_yolo(img, yolo, min_prob=70, plot=True, figsize=(20,13)):
-    predicted_img, preds = yolo.detectCustomObjectsFromImage(input_image=img, custom_objects=None,
-                                                             input_type="array", output_type="array",
-                                                             minimum_percentage_probability=min_prob,
-                                                             display_percentage_probability=True,
-                                                             display_object_name=True)
+    predicted_img, preds = yolo.detectObjectsFromImage(input_image=img, input_type="array", output_type="array",
+                                                       minimum_percentage_probability=min_prob,
+                                                       display_percentage_probability=True,
+                                                       display_object_name=True)
     if plot == True:
         utils_plot_img(predicted_img, figsize=figsize)
     return preds
@@ -209,12 +220,12 @@ Retrain yolo model with custom labeled images.
                         /validation/annotations/img_151.xml, img_152.xml ...
     :param modelfile_transfer: str - "models/yolo.h5" or empty string "" to train from scratch
 '''
-def train_yolo(lst_y, train_path="imgs/", transfer_modelfile="", epochs=5):
+def train_yolo(lst_y, train_path="imgs/", transfer_modelfile=""):
     ## setup
     yolo = DetectionModelTrainer()
     yolo.setModelTypeAsYOLOv3()
     yolo.setDataDirectory(data_directory=train_path)
-    yolo.setTrainConfig(object_names_array=lst_y, batch_size=4, num_experiments=epochs, 
+    yolo.setTrainConfig(object_names_array=lst_y, batch_size=4, num_experiments=1, 
                         train_from_pretrained_model=transfer_modelfile)
 
     ## train
@@ -226,10 +237,8 @@ def train_yolo(lst_y, train_path="imgs/", transfer_modelfile="", epochs=5):
     
     ## laod model
     print("--- Loading model ---")
-    #for h5 in os.listdir(train_path+"/model/"):
-        
-    #yolo = load_yolo(modelfile=train_path+"/model/custom_yolo.h5", confjson=train_path+"/json/detection_config.json")
-    #return yolo    
+    modelfile = os.listdir(train_path+"models/")[0]
+    return load_yolo(modelfile=train_path+"models/"+modelfile, confjson=train_path+"/json/detection_config.json")    
 
 
 
