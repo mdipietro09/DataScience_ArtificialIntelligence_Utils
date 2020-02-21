@@ -21,7 +21,7 @@ Plot a single image with pyplot.
     :param rect: list of tuples - [(x1,y1), (x2,y2)]
     :param title: string
 '''
-def utils_plot_img(img, mask=None, rect=None, title=None, figsize=(20,13)):
+def utils_plot_img(img, mask=None, rect=None, title=None, figsize=(5,3)):
     plot_img = img.copy()
     if mask is not None:
         mask = cv2.resize(mask, (img.shape[0],img.shape[1]), interpolation=cv2.INTER_LINEAR)
@@ -32,27 +32,12 @@ def utils_plot_img(img, mask=None, rect=None, title=None, figsize=(20,13)):
     fig.suptitle(title, fontsize=20)
     plt.imshow(plot_img)
 
-    
-    
-'''
-Load a single image with opencv.
-'''
-def utils_load_img(dirpath, file, ext=['.png','.jpg','.jpeg','.JPG'], plot=True, figsize=(20,13)):
-    if file.endswith(tuple(ext)):
-        img = cv2.imread( dirpath+file, cv2.IMREAD_UNCHANGED )
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        if plot == True:
-            utils_plot_img(img, figsize=figsize)
-        return img
-    else:
-        print("file extension unknown")
-    
 
 
 '''
 Plot n images in (1 row) x (n columns).
 '''
-def plot_multi_imgs(lst_imgs, lst_titles=[], figsize=(20,13)):
+def plot_imgs(lst_imgs, lst_titles=[], figsize=(20,13)):
     fig, ax = plt.subplots(nrows=1, ncols=len(lst_imgs), sharex=False, sharey=False, figsize=figsize)
     if len(lst_titles) == 1:
         fig.suptitle(lst_titles[0], fontsize=20)
@@ -61,22 +46,40 @@ def plot_multi_imgs(lst_imgs, lst_titles=[], figsize=(20,13)):
         if len(lst_titles) > 1:
             ax[i].set(title=lst_titles[i])
     plt.show()
+
+
     
+'''
+Load a single image with opencv.
+'''
+def utils_load_img(file, ext=['.png','.jpg','.jpeg','.JPG'], plot=True, figsize=(5,3)):
+    if file.endswith(tuple(ext)):
+        img = cv2.imread(file, cv2.IMREAD_UNCHANGED)
+        if len(img.shape) > 2:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if plot == True:
+            utils_plot_img(img, figsize=figsize)
+        return img
+    else:
+        print("file extension unknown")
     
+
     
 '''
 Load a folder of imgs.
 '''
-def load_multi_imgs(dirpath, ext=['.png','.jpg','.jpeg','.JPG']):
+def load_imgs(dirpath, ext=['.png','.jpg','.jpeg','.JPG'], plot=False, figsize=(20,13)):
     lst_imgs =[]
     for file in os.listdir(dirpath):
         try:
             if file.endswith(tuple(ext)):
-                img = utils_load_img(dirpath=dirpath, file=file, ext=ext, plot=False)
+                img = utils_load_img(file=dirpath+file, ext=ext, plot=False)
                 lst_imgs.append(img)
         except Exception as e:
             print("failed on:", file, "| error:", e)
             pass
+    if plot is True:
+        plot_imgs(lst_imgs[0:5], lst_titles=[], figsize=figsize)
     return lst_imgs
 
 
@@ -84,7 +87,7 @@ def load_multi_imgs(dirpath, ext=['.png','.jpg','.jpeg','.JPG']):
 '''
 Plot univariate and bivariate colors histogram.
 '''
-def utils_color_distributions(lst_imgs, lst_y=None, figsize=(20,13)):
+def utils_color_distributions(lst_imgs, lst_y=None, figsize=(5,3)):
     ## univariate
     if lst_y is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -114,11 +117,14 @@ def utils_color_distributions(lst_imgs, lst_y=None, figsize=(20,13)):
 '''
 Preprocess a single image.
 '''
-def utils_preprocess_img(img, resize=224, denoise=True, remove_color=True, morphology=True, segmentation=True, plot=True, figsize=(20,13)):
+def utils_preprocess_img(img, resize=224, denoise=False, remove_color=False, morphology=False, segmentation=False, plot=False, figsize=(20,13)):
     ## original
     img_processed = img
     lst_imgs = [img_processed]
     lst_titles = ["original:  "+str(img_processed.shape)]
+    
+    ## scale
+    #img_processed = img_processed/255
     
     ## resize
     if resize is not False:
@@ -152,7 +158,7 @@ def utils_preprocess_img(img, resize=224, denoise=True, remove_color=True, morph
         if segmentation is True:
             background = cv2.dilate(img_processed, np.ones((3,3),np.uint8), iterations=3)
             if len(img_processed.shape) > 2:
-                print("--- Need to remove color to segment ---")
+                print("--- need to remove color to segment ---")
             else:
                 ret, foreground = cv2.threshold(cv2.distanceTransform(img_processed, cv2.DIST_L2, 5), 
                                                 0.7 * cv2.distanceTransform(img_processed, cv2.DIST_L2, 5).max(), 
@@ -162,19 +168,34 @@ def utils_preprocess_img(img, resize=224, denoise=True, remove_color=True, morph
                 markers = markers + 1
                 unknown = cv2.subtract(background, foreground)
                 markers[unknown == 255] = 0
-                img_processed = cv2.watershed(cv2.resize(img, (224,224), interpolation=cv2.INTER_LINEAR), markers)
+                img_processed = cv2.watershed(cv2.resize(img, img_processed.shape, interpolation=cv2.INTER_LINEAR), markers)
                 lst_imgs.append(img_processed)
                 lst_titles.append("segmented:  "+str(img_processed.shape))
     if (segmentation is True) and (morphology is False):
-        print("--- Need to do morphology to segment ---")
-    
-    ## scale
-    img_processed = img_processed/255
+        print("--- need to do morphology to segment ---")
     
     ## plot
     if plot is True:
-        plot_multi_imgs(lst_imgs, lst_titles, figsize)
+        plot_imgs(lst_imgs, lst_titles, figsize)
     return img_processed
+
+
+
+'''
+'''
+def save_imgs(lst_imgs, dirpath, lst_names=None, i=0):
+    for img in lst_imgs:
+        try:
+            name = str(lst_names[i]) if lst_names is not None else str(i)
+            if len(img.shape) > 2:
+                cv2.imwrite(dirpath+name+".jpg", cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            else:
+                cv2.imwrite(dirpath+name+".jpg", img)
+            i += 1
+        except Exception as e:
+            print("failed on:", i, "| error:", e)
+            i += 1
+            pass
 
 
 
@@ -198,14 +219,14 @@ def load_yolo(modelfile="yolo.h5", confjson=None):
 '''
 Predict with yolo and plot rectangles.
 '''
-def obj_detect_yolo(img, yolo, min_prob=70, plot=True, figsize=(20,13)):
+def obj_detect_yolo(img, yolo, min_prob=70, plot=False, figsize=(20,13)):
     predicted_img, preds = yolo.detectObjectsFromImage(input_image=img, input_type="array", output_type="array",
                                                        minimum_percentage_probability=min_prob,
                                                        display_percentage_probability=True,
                                                        display_object_name=True)
     if plot == True:
         utils_plot_img(predicted_img, figsize=figsize)
-    return preds
+    return predicted_img, preds
 
 
 
@@ -220,7 +241,7 @@ Retrain yolo model with custom labeled images.
                         /validation/annotations/img_151.xml, img_152.xml ...
     :param modelfile_transfer: str - "models/yolo.h5" or empty string "" to train from scratch
 '''
-def train_yolo(lst_y, train_path="imgs/", transfer_modelfile=""):
+def train_yolo(lst_y, train_path="fs/training_yolo/", transfer_modelfile=""):
     ## setup
     yolo = DetectionModelTrainer()
     yolo.setModelTypeAsYOLOv3()
@@ -229,14 +250,17 @@ def train_yolo(lst_y, train_path="imgs/", transfer_modelfile=""):
                         train_from_pretrained_model=transfer_modelfile)
 
     ## train
+    print("--- training ---")
     yolo.trainModel()
     
     ## evaluate
-    # metrics = yolo.evaluateModel(model_path="hololens/models", json_path="hololens/json/detection_config.json", 
-    #                             iou_threshold=0.5, object_threshold=0.3, nms_threshold=0.5)
+    print("--- metrics ---")
+    metrics = yolo.evaluateModel(model_path=train_path+"models", json_path=train_path+"json/detection_config.json", 
+                                 iou_threshold=0.5, object_threshold=0.5, nms_threshold=0.5)
+    print(metrics)
     
     ## laod model
-    print("--- Loading model ---")
+    print("--- loading model ---")
     modelfile = os.listdir(train_path+"models/")[0]
     return load_yolo(modelfile=train_path+"models/"+modelfile, confjson=train_path+"/json/detection_config.json")    
 
