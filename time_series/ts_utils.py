@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import statsmodels.tsa.api as smt
 import statsmodels.api as sm
 import pmdarima
+import arch
 from fbprophet import Prophet, diagnostics, plot as fbPlot
 pd.plotting.register_matplotlib_converters()
 from sklearn import preprocessing
@@ -82,7 +83,7 @@ def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(20,13)):
 
 '''
 '''
-def diff_ts(ts, lag=1, order=1, na="drop"):
+def diff_ts(ts, order=1, lag=1, na="drop"):
     for i in range(order):
         ts = ts - ts.shift(lag)
     ts = ts[(pd.notnull(ts))] if na == "drop" else ts.fillna(method="bfill")
@@ -143,9 +144,30 @@ def decompose_ts(ts, s=250, figsize=(20,13)):
 
 
 
+'''
+'''
+def find_outliers():
+    return 0
+
+
+
+'''
+'''
+def treat_outliers():
+    return 0
+
+
+
 ###############################################################################
 #                 MODEL DESIGN & TESTING - FORECASTING                        #
 ###############################################################################
+'''
+'''
+def utils_generate_indexdate():
+    return 0    
+
+
+
 '''
 '''
 def utils_split_train_test(ts, exog=None, test=0.2):
@@ -226,25 +248,75 @@ def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"
         print("--- got error ---")
         print(e)
     
-    
+
 
 ###############################################################################
-#                             ARIMA                                           #
+#                           RANDOM WALK                                       #
+###############################################################################
+'''
+'''
+def utils_generate_rw(y0, n, sigma, ymin=None, ymax=None):
+    rw = [y0]
+    for t in range(1, n):
+        yt = rw[t-1] + np.random.normal(0,sigma)
+        if (ymax is not None) and (yt > ymax):
+            yt = rw[t-1] - abs(np.random.normal(0,sigma))
+        elif (ymin is not None) and (yt < ymax):
+            yt = rw[t-1] + abs(np.random.normal(0,sigma))
+        rw.append(yt)
+    return rw
+        
+       
+ 
+'''
+Simulate Random Walk from params of a given ts: 
+    y[t+1] = y[t] + wn~(0,σ)
+'''
+def simulate_randomwalk(ts, test=0.2, pred_ahead=5, figsize=(20,13)):
+    ## split train/test
+    ts_train, ts_test = utils_split_train_test(ts, test=test)
+    
+    ## simulate train
+    diff_ts = ts_train - ts_train.shift(1)
+    rw = utils_generate_rw(y0=ts_train[0], n=len(ts_train), sigma=diff_ts.std(), ymin=ts_train.min(), ymax=ts_train.max())
+    dtf = ts.to_frame(name="ts")
+    dtf = dtf.merge(pd.DataFrame(rw, index=ts_train.index, columns=["fitted"]), how='left', left_index=True, right_index=True)
+    
+    ## test
+    rw = utils_generate_rw(y0=ts_train[-1], n=len(ts_test), sigma=diff_ts.std(), ymin=ts_train.min(), ymax=ts_train.max())
+    dtf = dtf.merge(pd.DataFrame(rw, index=ts_test.index, columns=["test"]), how='left', left_index=True, right_index=True)
+    
+    ## forecast
+    diff_ts = ts - ts.shift(1)
+    rw = utils_generate_rw(y0=ts[-1], n=pred_ahead, sigma=diff_ts.std(), ymin=ts.min(), ymax=ts.max())
+    start = ts.index[-1] + datetime.timedelta(days=1)
+    end = start + datetime.timedelta(days=pred_ahead-1)
+    index = pd.date_range(start=start, end=end, freq="D") 
+    dtf = dtf.append(pd.DataFrame(data=rw, index=index, columns={"forecast"}))
+    
+    ## evaluate
+    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Random Walk Simulation")
+    return dtf
+    
+
+
+###############################################################################
+#                        AUTOREGRESSIVE                                       #
 ###############################################################################
 '''
 Fits Holt-Winters Exponential Smoothing: 
-    y_t+i = (level_t + i*trend_t) * seasonality_t
+    y[t+i] = (level[t] + i*trend[t]) * seasonality[t]
 :parameter
     :param ts: pandas timeseries
-    :param trend: str - "additive", "multiplicative"
-    :param seasonal: str - "additive", "multiplicative"
+    :param trend: str - "additive" (linear), "multiplicative" (non-linear)
+    :param seasonal: str - "additive" (ex. +100 every 7 days), "multiplicative" (ex. x10 every 7 days)
     :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
     :param alpha: num - the alpha value of the simple exponential smoothing (ex 0.94)
     :param pred_ahead: num - predictions ahead
 :return
     dtf with predictons and the model
 '''
-def fit_expsmooth(ts, trend=None, seasonal=None, s=None, alpha=0.94, test=0.2, pred_ahead=5, figsize=(20,13)):
+def fit_expsmooth(ts, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, test=0.2, pred_ahead=5, figsize=(20,13)):
     ## checks
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+str(seasonal)+" Seasonality every "+str(s)+" observations"
     print(check_seasonality)
@@ -275,12 +347,11 @@ def fit_expsmooth(ts, trend=None, seasonal=None, s=None, alpha=0.94, test=0.2, p
 
 '''
 Fits SARIMAX (Seasonal ARIMA with External Regressors):  
-    yt+1 = (c + a0*yt + a1*yt-1 +...+ ap*yt-p) + (et + b1*et-1 + b2*et-2 +...+ bq*et-q) + (B*Xt)
+    y[t+1] = (c + a0*y[t] + a1*y[t-1] +...+ ap*y[t-p]) + (e[t] + b1*e[t-1] + b2*e[t-2] +...+ bq*e[t-q]) + (B*X[t])
 :parameter
     :param ts: pandas timeseries
     :param order: tuple - ARIMA(p,d,q) --> p: lag order (AR), d: degree of differencing (to remove trend), q: order of moving average (MA)
     :param seasonal_order: tuple - (P,D,Q,s) --> s: number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-    :param trend: str or None - "c" constant, "t" linear, "ct" both
     :param exog: pandas dataframe or numpy array
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param pred_ahead: num - predictions ahead
@@ -290,9 +361,9 @@ Fits SARIMAX (Seasonal ARIMA with External Regressors):
 :return
     dtf with predictons and the model
 '''
-def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
+def fit_sarimax(ts, order=(1,0,1), seasonal_order=(0,0,0,0), exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
     ## checks
-    check_trend = "Trend parameters: No trend and No differencing" if (order[1] == 0) & (trend==None) else "Trend parameters: trend is "+str(trend)+" and d="+str(order[1])
+    check_trend = "Trend parameters: No differencing" if order[1] == 0 else "Trend parameters: d="+str(order[1])
     print(check_trend)
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal_order[3] == 0) & (np.sum(seasonal_order[0:3]) == 0) else "Seasonal parameters: Seasonality every "+str(seasonal_order[3])+" observations"
     print(check_seasonality)
@@ -307,7 +378,7 @@ def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=No
         ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
     
     ## train
-    model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit(disp=-1, trend=trend)
+    model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
     dtf = ts.to_frame(name="ts")
     dtf["fitted"] = model.fittedvalues
     
@@ -315,7 +386,7 @@ def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=No
     dtf["test"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
     
     ## forecast
-    model = smt.SARIMAX(ts, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit(disp=-1, trend=trend)
+    model = smt.SARIMAX(ts, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit()
     preds = model.forecast(pred_ahead, exog=pred_exog)
     preds = preds.to_frame(name="forecast")
     dtf = dtf.append(preds, sort=False)
@@ -329,7 +400,7 @@ def fit_sarimax(ts, order=(1,0,1), trend=None, seasonal_order=(0,0,0,0), exog=No
 
     
 '''
-Fits best Seasonal-ARIMAX.
+Find best Seasonal-ARIMAX parameters.
 :parameter
     :param ts: pandas timeseries
     :param exog: pandas dataframe or numpy array
@@ -352,10 +423,44 @@ def find_best_sarimax(ts, seasonal=True, stationary=False, s=1, exog=None,
 
 
 '''
+Fits GARCH (Generalized Autoregressive Conditional Heteroskedasticity):  
+    y[t+1] = m + e[t+1]
+    e[t+1] = σ[t+1] * wn~(0,1)
+    σ²[t+1] = c + (a0*σ²[t] + a1*σ²[t-1] +...+ ap*σ²[t-p]) + (b0*e²[t] + b1*e[t-1] + b2*e²[t-2] +...+ bq*e²[t-q])
+:parameter
+    :param ts: pandas timeseries
+    :param order: tuple - ARIMA(p,d,q) --> p:lag order (AR), d:degree of differencing (to remove trend), q:order of moving average (MA)
 '''
-def fit_varmax():
-    smt.VARMAX()
-    return dtf
+def fit_garch(ts, order=(1,0,1), s=None, exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
+    
+    ## split train/test
+    if exog is None:
+        ts_train, ts_test = utils_split_train_test(ts, exog=exog, test=test)
+        exog_train, exog_test = None, None
+    else:
+        ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
+    
+    ## train
+    arima = smt.ARIMA(ts_train, order=order).fit()
+    garch = arch.arch_model(arima.resid, p=order[0], o=order[1], q=order[2], x=exog_train,
+                            dist='StudentsT', power=2.0, mean='Constant', vol='GARCH')
+    model = garch.fit(update_freq=s)
+    dtf = ts.to_frame(name="ts")
+    dtf["fitted"] = arima.fittedvalues
+    
+    ## test
+    dtf["test"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
+    
+    ## forecast
+    model = smt.SARIMAX(ts, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit()
+    preds = model.forecast(pred_ahead, exog=pred_exog)
+    preds = preds.to_frame(name="forecast")
+    dtf = dtf.append(preds, sort=False)
+
+    ## evaluate
+    title = "GARCH ("+str(order[0])+","+str(order[2])+")" if order[0] != 0 else "ARCH ("+str(order[2])+")"
+    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title=title)
+    return dtf, model
 
 
 
@@ -387,7 +492,7 @@ Fits prophet on Business Data:
 '''
 def fit_prophet(ts, freq="D", figsize=(20,13),
                 growth="linear", changepoints=None, n_changepoints=25,
-                yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto", seasonality_mode='additive',
+                yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto", seasonality_mode='multiplicative',
                 holidays=None, lst_exog=None, pred_exog=None,
                 test=0.2, preds_ahead=5):
     ## split train/test
