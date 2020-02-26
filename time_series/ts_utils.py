@@ -343,7 +343,7 @@ def utils_generate_indexdate(start, end=None, n=None, freq="D"):
 '''
 Plot unknown future forecast.
 '''
-def utils_plot_forecast(dtf, title="", zoom=30, figsize=(15,5)):
+def utils_plot_forecast(dtf, zoom=30, figsize=(15,5)):
     ## interval
     dtf["residuals"] = dtf["ts"] - dtf["model"]
     dtf["conf_int_low"] = dtf["forecast"] - 1.96*dtf["residuals"].std()
@@ -748,90 +748,65 @@ def forecast_lstm(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsi
 Fits prophet on Business Data:
     y = trend + seasonality + holidays
 :parameter
-    :param ts: pandas Dataframe with columns 'ds' (dates), 'y' (values), 'cap' (capacity if growth="logistic"), other additional regressor
-    :param freq: str - "D" daily, "M" monthly, "Y" annual, "MS" monthly start ...
-    
-    :param growth: str - 'linear' or 'logistic' trend. "logistic" is for forecasting growth and needs capacity (ex. total market size, total population size)
-    :param changepoints: list or None - dates at which to include potential changepoints
-    :param n_changepoints: num - number of potential automatic changepoints to include
-    
-    :param yearly_seasonality: str or bool - "auto", True or False
-    :param weekly_seasonality: str or bool - "auto", True or False
-    :param daily_seasonality: str or bool - "auto", True or False
-    :param seasonality_mode: str - 'additive' or 'multiplicative'
-    
-    :param holidays: pandas - DataFrame with columns 'ds' (dates) and 'holiday' (string ex 'xmas')
-
+    :param dtf_train: pandas Dataframe with columns 'ds' (dates), 'y' (values), 'cap' (capacity if growth="logistic"), other additional regressor
+    :param dtf_test: pandas Dataframe with columns 'ds' (dates), 'y' (values), 'cap' (capacity if growth="logistic"), other additional regressor
     :param lst_exog: list - names of variables
-    :paam pred_exog: array - values of exog variables
+    :param freq: str - "D" daily, "M" monthly, "Y" annual, "MS" monthly start ...
 :return
     dtf with predictons and the model
 '''
-def fit_prophet(ts, freq="D", figsize=(20,13),
-                growth="linear", changepoints=None, n_changepoints=25,
-                yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto", seasonality_mode='multiplicative',
-                holidays=None, lst_exog=None, pred_exog=None,
-                test=0.2, preds_ahead=5):
-    ## split train/test
-    ts_train, ts_test = utils_split_train_test(ts, exog=None, test=test)
-     
-    ## prophet
-    model = Prophet(growth, changepoints=changepoints, n_changepoints=n_changepoints,
-                    yearly_seasonality=yearly_seasonality, weekly_seasonality=weekly_seasonality, daily_seasonality=daily_seasonality,seasonality_mode=seasonality_mode,
-                    holidays=holidays)
+def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", figsize=(15,10)):
+    ## setup prophet
+    if model is None:
+        model = Prophet(growth="linear", changepoints=None, n_changepoints=25, seasonality_mode="multiplicative",
+                yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto",
+                holidays=None)
     if lst_exog != None:
         for regressor in lst_exog:
             model.add_regressor(regressor)
     
     ## train
-    model.fit(ts_train)
+    model.fit(dtf_train)
     
     ## test
-    dtf_prophet = model.make_future_dataframe(periods=len(ts_test), freq=freq, include_history=True)
+    dtf_prophet = model.make_future_dataframe(periods=len(dtf_test), freq=freq, include_history=True)
     
-    if growth == "logistic":
-        dtf_prophet["cap"] = ts_train["cap"].unique()[0]
-    
-    if lst_exog != None:
-        dtf_prophet = dtf_prophet.merge(ts_train[["ds"]+lst_exog], how="left")
-        dtf_prophet.iloc[-preds_ahead:][lst_exog] = ts_test[lst_exog].values
-    
-    dtf_prophet = model.predict(dtf_prophet)
-    
-    
-    ## predict
-    dtf_prophet = model.make_future_dataframe(periods=preds_ahead, freq=freq, include_history=True)
-    
-    if growth == "logistic":
-        dtf_prophet["cap"] = ts["cap"].unique()[0]
+    if model.growth == "logistic":
+        dtf_prophet["cap"] = dtf_train["cap"].unique()[0]
     
     if lst_exog != None:
-        dtf_prophet = dtf_prophet.merge(ts[["ds"]+lst_exog], how="left")
-        dtf_prophet.iloc[-preds_ahead:][lst_exog] = pred_exog
+        dtf_prophet = dtf_prophet.merge(dtf_train[["ds"]+lst_exog], how="left")
+        dtf_prophet.iloc[-len(dtf_test):][lst_exog] = dtf_test[lst_exog].values
     
     dtf_prophet = model.predict(dtf_prophet)
+    dtf_train = dtf_train.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'model', 'y':'ts'}).set_index("ds")
+    dtf_test = dtf_test.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'forecast', 'y':'ts'}).set_index("ds")
     
-    ## plot prophet
-    #fig = fbPlot.plot(model, dtf_prophet, figsize=figsize)
-    #fbPlot.add_changepoints_to_plot(fig.gca(), model, dtf_prophet)
+    ## evaluate
+    dtf = dtf_train.append(dtf_test)
+    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Prophet")
+    return dtf, model
     
-    
-    
-    return dtf_prophet[["ds", "yhat_lower", "yhat", "yhat_upper"]], model
-
 
 
 '''
+Forecast unknown future.
 '''
-def evaluate_prophet(model, years_train, years_fold, days_forecast, figsize=(20,13)):
-    ## initial training
-    initial =  str(years_train * 365)+" days"
-    ## period to test
-    period = str(years_fold * 365)+" days"
-    ## horizon to forecast
-    horizon = str(days_forecast)+" days"
+def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+    ## fit
+    model.fit(dtf)
     
-    dtf_cv = diagnostics.cross_validation(model, initial=initial, period=period, horizon=horizon)
-    fbPlot.plot(model, dtf_cv, figsize=figsize)
-    kpi = diagnostics.performance_metrics(dtf_cv)
-    return kpi
+    ## index
+    index = utils_generate_indexdate(start=dtf["ds"].values[-1], end=end, n=pred_ahead, freq=freq)
+    
+    ## forecast
+    dtf_prophet = model.make_future_dataframe(periods=len(index), freq=freq, include_history=True)
+    dtf_prophet = model.predict(dtf_prophet)
+    dtf = dtf.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'model', 'y':'ts'}).set_index("ds")
+    preds = pd.DataFrame(data=index, columns=["ds"])
+    preds = preds.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'forecast'}).set_index("ds")
+    dtf = dtf.append(preds)
+    
+    ## plot
+    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    return dtf
