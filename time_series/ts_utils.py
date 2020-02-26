@@ -8,11 +8,9 @@ import pmdarima
 import arch
 from fbprophet import Prophet, diagnostics, plot as fbPlot
 pd.plotting.register_matplotlib_converters()
-from sklearn import preprocessing
+from sklearn import preprocessing, svm
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 import datetime
-import warnings
-warnings.filterwarnings("ignore")
 
 
 
@@ -20,8 +18,14 @@ warnings.filterwarnings("ignore")
 #                         TS ANALYSIS                                         #
 ###############################################################################
 '''
+Plot ts with rolling mean and 95% confidence interval with rolling std.
+:parameter
+    :param ts: pandas Series
+    :param window: num for rolling stats
+:return
+    dtf: input dataframe with 2 new columns
 '''
-def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(20,13)):
+def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     rolling_mean = ts.rolling(window=window).mean()
     rolling_std = ts.rolling(window=window).std()
     plt.figure(figsize=figsize)
@@ -46,8 +50,12 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(20,13)):
 
 
 '''
+Test stationarity by:
+    - running Augmented Dickey-Fuller test wiht 95%
+    - plotting mean and variance of a sample from data
+    - plottig autocorrelation and partial autocoreelation
 '''
-def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(20,13)):
+def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(15,10)):
     with plt.style.context(style='bmh'):
         ## set figure
         fig = plt.figure(figsize=figsize)
@@ -79,14 +87,20 @@ def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(20,13)):
         smt.graphics.plot_acf(ts, lags=maxlag, ax=acf_ax, title="Autocorrelation (for MA component)")
         plt.tight_layout()    
    
-    
+
 
 '''
+Defferenciate ts.
+:parameter
+    :param ts: pandas Series
+    :param lag: num - diff[t] = y[t] - y[t-lag]
+    :param order: num - how many times it has to differenciate: diff[t]^order = diff[t] - diff[t-lag] 
+    :param drop_na: logic - if True Na are dropped, else are filled with last observation
 '''
-def diff_ts(ts, order=1, lag=1, na="drop"):
+def diff_ts(ts, lag=1, order=1, drop_na=True):
     for i in range(order):
         ts = ts - ts.shift(lag)
-    ts = ts[(pd.notnull(ts))] if na == "drop" else ts.fillna(method="bfill")
+    ts = ts[(pd.notnull(ts))] if drop_na is True else ts.fillna(method="bfill")
     return ts
 
 
@@ -102,8 +116,9 @@ def undo_diff(ts, first_y, lag=1, order=1):
 
 
 '''
+Run Granger test on 2 series
 '''
-def test_2ts_casuality(ts1, ts2, maxlag=30, figsize=(20,13)):
+def test_2ts_casuality(ts1, ts2, maxlag=30, figsize=(15,5)):
     ## prepare
     dtf = ts1.to_frame(name=ts1.name)
     dtf[ts2.name] = ts2
@@ -121,6 +136,12 @@ def test_2ts_casuality(ts1, ts2, maxlag=30, figsize=(20,13)):
 
 
 '''
+Decompose ts into
+    - trend component = moving avarage
+    - seasonality
+    - residuals = y - (trend + seasonality)
+:parameter
+    :param s: num - number of observations per seasonality (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
 '''
 def decompose_ts(ts, s=250, figsize=(20,13)):
     decomposition = smt.seasonal_decompose(ts, freq=s)
@@ -145,16 +166,46 @@ def decompose_ts(ts, s=250, figsize=(20,13)):
 
 
 '''
+Find outliers using sklearn unsupervised support vetcor machine.
+:parameter
+    :param ts: pandas Series
+    :param perc: float - percentage of outliers to look for
+:return
+    dtf with raw ts, outlier 1/0 (yes/no), numeric index
 '''
-def find_outliers():
-    return 0
+def find_outliers(ts, perc=0.01, figsize=(15,5)):
+    ## fit svm
+    scaler = preprocessing.StandardScaler()
+    ts_scaled = scaler.fit_transform(ts.values.reshape(-1,1))
+    model = svm.OneClassSVM(nu=perc, kernel="rbf", gamma=0.01)
+    model.fit(ts_scaled)
+    ## dtf output
+    dtf_outliers = ts.to_frame(name="ts")
+    dtf_outliers["index"] = range(len(ts))
+    dtf_outliers["outlier"] = model.predict(ts_scaled)
+    dtf_outliers["outlier"] = dtf_outliers["outlier"].apply(lambda x: 1 if x==-1 else 0)
+    ## plot
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set(title="Outliers detection: found "+str(sum(dtf_outliers["outlier"]==1)))
+    ax.plot(dtf_outliers["index"], dtf_outliers["ts"], color="black")
+    ax.scatter(x=dtf_outliers[dtf_outliers["outlier"]==1]["index"], y=dtf_outliers[dtf_outliers["outlier"]==1]['ts'], color='red')
+    ax.grid(True)
+    plt.show()
+    return dtf_outliers
 
 
 
 '''
+Interpolate outliers in a ts.
 '''
-def treat_outliers():
-    return 0
+def treat_outliers(ts, outliers_idx, figsize=(15,5)):
+    ts_clean = ts.copy()
+    ts_clean.loc[outliers_idx] = np.nan
+    ts_clean = ts_clean.interpolate(method="linear")
+    ax = ts.plot(figsize=figsize, color="red", alpha=0.5, title="Remove outliers", label="original", legend=True)
+    ts_clean.plot(ax=ax, grid=True, color="black", label="interpolated", legend=True)
+    plt.show()
+    return ts_clean
 
 
 
@@ -162,24 +213,39 @@ def treat_outliers():
 #                 MODEL DESIGN & TESTING - FORECASTING                        #
 ###############################################################################
 '''
+Split train/test from .
+:parameter
+    :param ts: pandas Series
+    :param exog: array len(ts) x n regressors
+    :param test: num or str - test size (ex. 0.20) or index position (ex. "yyyy-mm-dd", 1000)
+:return
+    dtf: input dataframe with 2 new columns
 '''
-def utils_generate_indexdate():
-    return 0    
-
-
-
-'''
-'''
-def utils_split_train_test(ts, exog=None, test=0.2):
+def split_train_test(ts, exog=None, test=0.20, plot=True, figsize=(15,5)):
+    ## define splitting point
     if type(test) is float:
         split = int(len(ts)*(1-test))
+        perc = test
     elif type(test) is str:
-        split = ts.index.tolist().index(test)
+        split = ts.reset_index()[ts.reset_index().iloc[:,0]==test].index[0]
+        perc = round(len(ts[split:])/len(ts), 2)
     else:
         split = test
-    print("--- splitting at index: ", split, " ---")
+        perc = round(len(ts[split:])/len(ts), 2)
+    print("--- splitting at index: ", split, "|", ts.index[split], "| test size:", perc, " ---")
+    
+    ## split ts
     ts_train = ts.head(split)
-    ts_test = ts.tail(len(ts)-split)  
+    ts_test = ts.tail(len(ts)-split)
+    if plot is True:
+        fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=True, figsize=figsize)
+        ts_train.plot(ax=ax[0], grid=True, title="Train", color="black")
+        ts_test.plot(ax=ax[1], grid=True, title="Test", color="black")
+        ax[0].set(xlabel=None)
+        ax[1].set(xlabel=None)
+        plt.show()
+        
+    ## split exog
     if exog is not None:
         exog_train = exog[0:split] 
         exog_test = exog[split:]
@@ -190,59 +256,64 @@ def utils_split_train_test(ts, exog=None, test=0.2):
 
 
 '''
+Evaluation metrics for predictions.
+:parameter
+    :param dtf: DataFrame with columns raw values, fitted training values, predicted test values
+:return
+    dataframe with raw ts and forecast
 '''
-def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"], plot=True, figsize=(20,13)):
+def utils_evaluate_forecast(dtf, title, plot=True, figsize=(20,13)):
     try:
-        col_ts, col_fitted, col_test, col_preds = columns[0], columns[1], columns[2], columns[3]
-        
         ## residuals
-        dtf["fitting_error"] = dtf[col_ts] - dtf[col_fitted]
-        dtf["error_pct"] =  dtf["fitting_error"] / dtf[col_ts]
-        dtf["prediction_error"] = dtf[col_ts] - dtf[col_test]
-        dtf["prediction_error_pct"] = dtf["prediction_error"] / dtf[col_ts]
+        dtf["residuals"] = dtf["ts"] - dtf["model"]
+        dtf["error"] = dtf["ts"] - dtf["forecast"]
+        dtf["error_pct"] = dtf["error"] / dtf["ts"]
         
         ## kpi
-        ### fitting
-        error_mean = dtf["fitting_error"].mean()  #errore medio
-        error_std = dtf["fitting_error"].std()  #standard dev dell'errore
-        mae = dtf["fitting_error"].apply(lambda x: np.abs(x)).mean()  #mean absolute error
+        residuals_mean = dtf["residuals"].mean()  #errore medio nel training
+        residuals_std = dtf["residuals"].std()    #standard dev dell'errore nel training
+        error_mean = dtf["error"].mean()   #errore medio nel test
+        error_std = dtf["error"].std()     #standard dev dell'errore nel test
+        mae = dtf["error"].apply(lambda x: np.abs(x)).mean()  #mean absolute error
         mape = dtf["error_pct"].apply(lambda x: np.abs(x)).mean()  #mean absolute error %
-        mse = dtf["fitting_error"].apply(lambda x: x**2).mean() # mean squared error
+        mse = dtf["error"].apply(lambda x: x**2).mean() # mean squared error
         rmse = np.sqrt(mse)  #root mean squared error
-        ### testing
-        prediction_error_mean = dtf["prediction_error"].mean()
-        prediction_error_std = dtf["prediction_error"].std()
-        prediction_mae = dtf["prediction_error"].apply(lambda x: np.abs(x)).mean()
-        prediction_mape = dtf["prediction_error_pct"].apply(lambda x: np.abs(x)).mean()
-        prediction_mse = dtf["prediction_error"].apply(lambda x: x**2).mean()
-        prediction_rmse = np.sqrt(prediction_mse)
         
         ## intervals
-        dtf["conf_int_low"] = dtf[col_preds] - 1.96*error_std
-        dtf["conf_int_up"] = dtf[col_preds] + 1.96*error_std
-        dtf["pred_int_low"] = dtf[col_preds] - 1.96*prediction_error_std
-        dtf["pred_int_up"] = dtf[col_preds] + 1.96*prediction_error_std
+        dtf["conf_int_low"] = dtf["forecast"] - 1.96*residuals_std
+        dtf["conf_int_up"] = dtf["forecast"] + 1.96*residuals_std
+        dtf["pred_int_low"] = dtf["forecast"] - 1.96*error_std
+        dtf["pred_int_up"] = dtf["forecast"] + 1.96*error_std
         
         ## plot
         if plot==True:
-            fig, ax = plt.subplots(nrows=2, ncols=2, sharex=False, sharey=False, figsize=figsize)
-            fig.suptitle(title, fontsize=20)      
-            ### fitted values
-            dtf[pd.notnull(dtf[col_fitted])][[col_ts,col_fitted]].plot(color=["black","green"], title="Fitted Values", grid=True, ax=ax[0,0])      
-            ### test preds
-            dtf[pd.isnull(dtf[col_fitted])][[col_ts,col_test,col_preds]].plot(color=["black","red","blue"], title="Predictions", grid=True, ax=ax[0,1])
-            ax[0,1].fill_between(x=dtf.index, y1=dtf['pred_int_low'], y2=dtf['pred_int_up'], color='b', alpha=0.2)
-            ax[0,1].fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3)     
+            fig = plt.figure(figsize=figsize)
+            fig.suptitle(title, fontsize=20)   
+            ax1 = fig.add_subplot(2,2, 1)
+            ax2 = fig.add_subplot(2,2, 2, sharey=ax1)
+            ax3 = fig.add_subplot(2,2, 3)
+            ax4 = fig.add_subplot(2,2, 4)
+            ### training
+            dtf[pd.notnull(dtf["model"])][["ts","model"]].plot(color=["black","green"], title="Model", grid=True, ax=ax1)      
+            ax1.set(xlabel=None)
+            ### test
+            dtf[pd.isnull(dtf["model"])][["ts","forecast"]].plot(color=["black","red"], title="Forecast", grid=True, ax=ax2)
+            ax2.fill_between(x=dtf.index, y1=dtf['pred_int_low'], y2=dtf['pred_int_up'], color='b', alpha=0.2)
+            ax2.fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3)     
+            ax2.set(xlabel=None)
             ### residuals
-            dtf[["fitting_error","prediction_error"]].plot(ax=ax[1,0], color=["green","red"], title="Residuals", grid=True)
+            dtf[["residuals","error"]].plot(ax=ax3, color=["green","red"], title="Residuals", grid=True)
+            ax3.set(xlabel=None)
             ### residuals distribution
-            dtf[["fitting_error","prediction_error"]].plot(ax=ax[1,1], color=["green","red"], kind='kde', title="Residuals Distribution", grid=True)
+            dtf[["residuals","error"]].plot(ax=ax4, color=["green","red"], kind='kde', title="Residuals Distribution", grid=True)
+            ax4.set(ylabel=None)
             plt.show()
-            print("error_mean:",np.round(prediction_error_mean), " | error_std:",np.round(prediction_error_std),
-              " | mae:",np.round(prediction_mae), " | mape:",np.round(prediction_mape*100), "%  | mse:",np.round(prediction_mse), 
-              " | rmse:",np.round(prediction_rmse))
+            print("Training --> Residuals mean:", np.round(residuals_mean), " | std:", np.round(residuals_std))
+            print("Test --> Error mean:", np.round(error_mean), " | std:", np.round(error_std),
+                  " | mae:",np.round(mae), " | mape:",np.round(mape*100), "%  | mse:",np.round(mse), " | rmse:",np.round(rmse))
         
-        return dtf
+        return dtf[["ts","model","residuals","conf_int_low","conf_int_up", 
+                    "forecast","error","pred_int_low","pred_int_up"]]
     
     except Exception as e:
         print("--- got error ---")
@@ -250,10 +321,61 @@ def utils_evaluate_forecast(dtf, title, columns=["ts","fitted","test","forecast"
     
 
 
+'''
+Generate dates to index predictions.
+:parameter
+    :param start: str - "yyyy-mm-dd"
+    :param end: str - "yyyy-mm-dd"
+    :param n: num - length of index
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+'''
+def utils_generate_indexdate(start, end=None, n=None, freq="D"):
+    if end is not None:
+        index = pd.date_range(start=start, end=end, freq=freq)
+    else:
+        index = pd.date_range(start=start, periods=n, freq=freq)
+    index = index[1:]
+    print("--- generating index date --> start:", index[0], "| end:", index[-1], "| len:", len(index), "---")
+    return index
+
+
+
+'''
+Plot unknown future forecast.
+'''
+def utils_plot_forecast(dtf, title="", zoom=30, figsize=(15,5)):
+    ## interval
+    dtf["residuals"] = dtf["ts"] - dtf["model"]
+    dtf["conf_int_low"] = dtf["forecast"] - 1.96*dtf["residuals"].std()
+    dtf["conf_int_up"] = dtf["forecast"] + 1.96*dtf["residuals"].std()
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    
+    ## entire series
+    dtf[["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[0], title="History + Future")
+    ax[0].fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3) 
+          
+    ## focus on last
+    first_idx = dtf[pd.notnull(dtf["forecast"])].index[0]
+    first_loc = dtf.index.tolist().index(first_idx)
+    zoom_idx = dtf.index[first_loc-zoom]
+    dtf.loc[zoom_idx:][["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[1], title="Zoom on the last "+str(zoom)+" observations")
+    ax[1].fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['conf_int_low'], 
+                       y2=dtf.loc[zoom_idx:]['conf_int_up'], color='b', alpha=0.3)
+    plt.show()
+    return dtf[["ts","model","residuals","conf_int_low","forecast","conf_int_up"]]
+
+
+
 ###############################################################################
 #                           RANDOM WALK                                       #
 ###############################################################################
 '''
+Generate a Random Walk process.
+:parameter
+    :param y0: num - starting value
+    :param n: num - length of process
+    :param ymin: num - limit
+    :param ymax: num - limit
 '''
 def utils_generate_rw(y0, n, sigma, ymin=None, ymax=None):
     rw = [y0]
@@ -261,41 +383,55 @@ def utils_generate_rw(y0, n, sigma, ymin=None, ymax=None):
         yt = rw[t-1] + np.random.normal(0,sigma)
         if (ymax is not None) and (yt > ymax):
             yt = rw[t-1] - abs(np.random.normal(0,sigma))
-        elif (ymin is not None) and (yt < ymax):
+        elif (ymin is not None) and (yt < ymin):
             yt = rw[t-1] + abs(np.random.normal(0,sigma))
         rw.append(yt)
     return rw
         
-       
+
  
 '''
 Simulate Random Walk from params of a given ts: 
     y[t+1] = y[t] + wn~(0,σ)
 '''
-def simulate_randomwalk(ts, test=0.2, pred_ahead=5, figsize=(20,13)):
-    ## split train/test
-    ts_train, ts_test = utils_split_train_test(ts, test=test)
-    
+def simulate_rw(ts_train, ts_test, figsize=(15,10)):
     ## simulate train
     diff_ts = ts_train - ts_train.shift(1)
     rw = utils_generate_rw(y0=ts_train[0], n=len(ts_train), sigma=diff_ts.std(), ymin=ts_train.min(), ymax=ts_train.max())
-    dtf = ts.to_frame(name="ts")
-    dtf = dtf.merge(pd.DataFrame(rw, index=ts_train.index, columns=["fitted"]), how='left', left_index=True, right_index=True)
+    dtf_train = ts_train.to_frame(name="ts").merge(pd.DataFrame(rw, index=ts_train.index, columns=["model"]), how='left', left_index=True, right_index=True)
     
     ## test
     rw = utils_generate_rw(y0=ts_train[-1], n=len(ts_test), sigma=diff_ts.std(), ymin=ts_train.min(), ymax=ts_train.max())
-    dtf = dtf.merge(pd.DataFrame(rw, index=ts_test.index, columns=["test"]), how='left', left_index=True, right_index=True)
-    
-    ## forecast
-    diff_ts = ts - ts.shift(1)
-    rw = utils_generate_rw(y0=ts[-1], n=pred_ahead, sigma=diff_ts.std(), ymin=ts.min(), ymax=ts.max())
-    start = ts.index[-1] + datetime.timedelta(days=1)
-    end = start + datetime.timedelta(days=pred_ahead-1)
-    index = pd.date_range(start=start, end=end, freq="D") 
-    dtf = dtf.append(pd.DataFrame(data=rw, index=index, columns={"forecast"}))
+    dtf_test = ts_test.to_frame(name="ts").merge(pd.DataFrame(rw, index=ts_test.index, columns=["forecast"]), 
+                                                 how='left', left_index=True, right_index=True)
     
     ## evaluate
+    dtf = dtf_train.append(dtf_test)
     dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Random Walk Simulation")
+    return dtf
+
+
+
+'''
+Forecast unknown future.
+'''
+def forecast_rw(ts, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+    ## fit
+    diff_ts = ts - ts.shift(1)
+    sigma = diff_ts.std()
+    rw = utils_generate_rw(y0=ts[0], n=len(ts), sigma=sigma, ymin=ts.min(), ymax=ts.max())
+    dtf = ts.to_frame(name="ts").merge(pd.DataFrame(rw, index=ts.index, columns=["model"]), 
+                                       how='left', left_index=True, right_index=True)
+    
+    ## index
+    index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
+    
+    ## forecast
+    preds = utils_generate_rw(y0=ts[-1], n=len(index), sigma=sigma, ymin=ts.min(), ymax=ts.max())
+    dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
+    
+    ## plot
+    dtf = utils_plot_forecast(dtf, zoom=zoom)
     return dtf
     
 
@@ -307,40 +443,33 @@ def simulate_randomwalk(ts, test=0.2, pred_ahead=5, figsize=(20,13)):
 Fits Holt-Winters Exponential Smoothing: 
     y[t+i] = (level[t] + i*trend[t]) * seasonality[t]
 :parameter
-    :param ts: pandas timeseries
+    :param ts_train: pandas timeseries
+    :param ts_test: pandas timeseries
     :param trend: str - "additive" (linear), "multiplicative" (non-linear)
     :param seasonal: str - "additive" (ex. +100 every 7 days), "multiplicative" (ex. x10 every 7 days)
     :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
     :param alpha: num - the alpha value of the simple exponential smoothing (ex 0.94)
-    :param pred_ahead: num - predictions ahead
 :return
     dtf with predictons and the model
 '''
-def fit_expsmooth(ts, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, test=0.2, pred_ahead=5, figsize=(20,13)):
+def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, figsize=(15,10)):
     ## checks
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+str(seasonal)+" Seasonality every "+str(s)+" observations"
     print(check_seasonality)
     
-    ## split train/test
-    ts_train, ts_test = utils_split_train_test(ts, test=test)
-    
     ## train
     #alpha = alpha if s is None else 2/(s+1)
     model = smt.ExponentialSmoothing(ts_train, trend=trend, seasonal=seasonal, seasonal_periods=s).fit(smoothing_level=alpha)
-    dtf = ts.to_frame(name="ts")
-    dtf["fitted"] = model.fittedvalues
+    dtf_train = ts_train.to_frame(name="ts")
+    dtf_train["model"] = model.fittedvalues
     
     ## test
-    dtf["test"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1)
-    
-    ## forecast
-    model = smt.ExponentialSmoothing(ts, trend=trend, seasonal=seasonal, seasonal_periods=s).fit(smoothing_level=alpha)
-    preds = model.forecast(pred_ahead)
-    preds = preds.to_frame(name="forecast")
-    dtf = dtf.append(preds, sort=False)
+    dtf_test = ts_test.to_frame(name="ts")
+    dtf_test["forecast"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1)
     
     ## evaluate
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Holt-Winters alpha:"+str(alpha))
+    dtf = dtf_train.append(dtf_test)
+    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Holt-Winters ("+str(alpha)+")")
     return dtf, model
 
 
@@ -349,50 +478,36 @@ def fit_expsmooth(ts, trend="additive", seasonal="multiplicative", s=None, alpha
 Fits SARIMAX (Seasonal ARIMA with External Regressors):  
     y[t+1] = (c + a0*y[t] + a1*y[t-1] +...+ ap*y[t-p]) + (e[t] + b1*e[t-1] + b2*e[t-2] +...+ bq*e[t-q]) + (B*X[t])
 :parameter
-    :param ts: pandas timeseries
+    :param ts_train: pandas timeseries
+    :param ts_test: pandas timeseries
     :param order: tuple - ARIMA(p,d,q) --> p: lag order (AR), d: degree of differencing (to remove trend), q: order of moving average (MA)
     :param seasonal_order: tuple - (P,D,Q,s) --> s: number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-    :param exog: pandas dataframe or numpy array
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
-    :param pred_ahead: num - predictions ahead
-    :param pred_exog: pandas dataframe or numpy array
-    :param pred_confidence: num - confidence interval
-    :param figsize: tuple - matplotlib figure
+    :param exog_train: pandas dataframe or numpy array
+    :param exog_test: pandas dataframe or numpy array
 :return
     dtf with predictons and the model
 '''
-def fit_sarimax(ts, order=(1,0,1), seasonal_order=(0,0,0,0), exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
+def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_train=None, exog_test=None, figsize=(15,10)):
     ## checks
     check_trend = "Trend parameters: No differencing" if order[1] == 0 else "Trend parameters: d="+str(order[1])
     print(check_trend)
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal_order[3] == 0) & (np.sum(seasonal_order[0:3]) == 0) else "Seasonal parameters: Seasonality every "+str(seasonal_order[3])+" observations"
     print(check_seasonality)
-    check_exog = "Exog parameters: Not given" if (exog is None) & (pred_exog is None) else "Exog parameters: number of regressors="+str(exog.shape[1])
+    check_exog = "Exog parameters: Not given" if (exog_train is None) & (exog_test is None) else "Exog parameters: number of regressors="+str(exog_train.shape[1])
     print(check_exog)
-    
-    ## split train/test
-    if exog is None:
-        ts_train, ts_test = utils_split_train_test(ts, exog=exog, test=test)
-        exog_train, exog_test = None, None
-    else:
-        ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
     
     ## train
     model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
-    dtf = ts.to_frame(name="ts")
-    dtf["fitted"] = model.fittedvalues
+    dtf_train = ts_train.to_frame(name="ts")
+    dtf_train["model"] = model.fittedvalues
     
     ## test
-    dtf["test"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
-    
-    ## forecast
-    model = smt.SARIMAX(ts, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit()
-    preds = model.forecast(pred_ahead, exog=pred_exog)
-    preds = preds.to_frame(name="forecast")
-    dtf = dtf.append(preds, sort=False)
+    dtf_test = ts_test.to_frame(name="ts")
+    dtf_test["forecast"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
     
     ## evaluate
-    title = "ARIMA "+str(order) if exog is None else "ARIMAX "+str(order)
+    dtf = dtf_train.append(dtf_test)
+    title = "ARIMA "+str(order) if exog_train is None else "ARIMAX "+str(order)
     title = "S"+title+" x "+str(seasonal_order) if np.sum(seasonal_order) > 0 else title
     dtf = utils_evaluate_forecast(dtf, figsize=figsize, title=title)
     return dtf, model
@@ -431,36 +546,198 @@ Fits GARCH (Generalized Autoregressive Conditional Heteroskedasticity):
     :param ts: pandas timeseries
     :param order: tuple - ARIMA(p,d,q) --> p:lag order (AR), d:degree of differencing (to remove trend), q:order of moving average (MA)
 '''
-def fit_garch(ts, order=(1,0,1), s=None, exog=None, test=0.2, pred_exog=None, pred_ahead=5, figsize=(20,13)):
-    
-    ## split train/test
-    if exog is None:
-        ts_train, ts_test = utils_split_train_test(ts, exog=exog, test=test)
-        exog_train, exog_test = None, None
-    else:
-        ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
-    
+def fit_garch(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_train=None, exog_test=None, figsize=(15,10)):
     ## train
-    arima = smt.ARIMA(ts_train, order=order).fit()
-    garch = arch.arch_model(arima.resid, p=order[0], o=order[1], q=order[2], x=exog_train,
-                            dist='StudentsT', power=2.0, mean='Constant', vol='GARCH')
+    arima = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
+    garch = arch.arch_model(arima.resid, p=order[0], o=order[1], q=order[2], x=exog_train, dist='StudentsT', power=2.0, mean='Constant', vol='GARCH')
     model = garch.fit(update_freq=s)
-    dtf = ts.to_frame(name="ts")
-    dtf["fitted"] = arima.fittedvalues
+    dtf_train = ts_train.to_frame(name="ts")
+    dtf_train["model"] = model.conditional_volatility
     
     ## test
-    dtf["test"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
-    
-    ## forecast
-    model = smt.SARIMAX(ts, order=order, seasonal_order=seasonal_order, exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit()
-    preds = model.forecast(pred_ahead, exog=pred_exog)
-    preds = preds.to_frame(name="forecast")
-    dtf = dtf.append(preds, sort=False)
+    dtf_test = ts_test.to_frame(name="ts")
+    dtf_test["forecast"] = model.forecast(horizon=len(ts_test))
 
     ## evaluate
+    dtf = dtf_train.append(dtf_test)
     title = "GARCH ("+str(order[0])+","+str(order[2])+")" if order[0] != 0 else "ARCH ("+str(order[2])+")"
     dtf = utils_evaluate_forecast(dtf, figsize=figsize, title=title)
     return dtf, model
+
+
+
+'''
+Forecast unknown future.
+'''
+def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+    ## fit
+    model = model.fit()
+    dtf = ts.to_frame(name="ts")
+    dtf["model"] = model.fittedvalues
+    dtf["residuals"] = dtf["ts"] - dtf["model"]
+    
+    ## index
+    index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
+    
+    ## forecast
+    preds = model.forecast(len(index))
+    dtf = dtf.append(preds.to_frame(name="forecast"))
+    
+    ## plot
+    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    return dtf
+
+
+
+###############################################################################
+#                            RNN                                              #
+###############################################################################
+'''
+Preprocess a ts partitioning into X and y.
+:parameter
+    :param ts: pandas timeseries
+    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+    :param scaler: sklearn scaler object - if None is fitted
+    :param exog: pandas dataframe or numpy array
+:return
+    X, y, scaler
+'''
+def utils_preprocess_ts(ts, s, scaler=None, exog=None):
+    ## scale
+    if scaler is None:
+        scaler = preprocessing.MinMaxScaler(feature_range=(0,1))
+    ts_preprocessed = scaler.fit_transform(ts.values.reshape(-1,1)).reshape(-1)        
+    
+    ## create X,y for train
+    ts_preprocessed = kprocessing.sequence.TimeseriesGenerator(data=ts_preprocessed, 
+                                                               targets=ts_preprocessed, 
+                                                               length=s, batch_size=1)
+    lst_X, lst_y = [], []
+    for i in range(len(ts_preprocessed)):
+        xi, yi = ts_preprocessed[i]
+        lst_X.append(xi)
+        lst_y.append(yi)
+    X = np.array(lst_X)
+    y = np.array(lst_y)
+    return X, y, scaler
+
+
+
+'''
+Get fitted values.
+'''
+def utils_fitted_lstm(ts, model, scaler, exog=None):
+    ## scale
+    ts_preprocessed = scaler.fit_transform(ts.values.reshape(-1,1)).reshape(-1) 
+    
+    ## create Xy, predict = fitted
+    s = model.input_shape[-1]
+    lst_fitted = [np.nan]*s
+    for i in range(len(ts_preprocessed)):
+        end_ix = i + s
+        if end_ix > len(ts_preprocessed)-1:
+            break
+        X = ts_preprocessed[i:end_ix]
+        X = np.array(X)
+        X = np.reshape(X, (1,1,X.shape[0]))
+        fit = model.predict(X)
+        fit = scaler.inverse_transform(fit)[0][0]
+        lst_fitted.append(fit)
+    return np.array(lst_fitted)
+
+
+
+'''
+Predict ts using previous predictions.
+'''
+def utils_predict_lstm(ts, model, scaler, pred_ahead, exog=None):
+    ## scale
+    s = model.input_shape[-1]
+    ts_preprocessed = list(scaler.fit_transform(ts[-s:].values.reshape(-1,1))) 
+    
+    ## predict, append, re-predict
+    lst_preds = []
+    for i in range(pred_ahead):
+        X = np.array(ts_preprocessed[len(ts_preprocessed)-s:])
+        X = np.reshape(X, (1,1,X.shape[0]))
+        pred = model.predict(X)
+        ts_preprocessed.append(pred)
+        pred = scaler.inverse_transform(pred)[0][0]
+        lst_preds.append(pred)
+    return np.array(lst_preds)
+
+
+
+'''
+Fits LSTM neural network.
+:parameter
+    :param ts: pandas timeseries
+    :param exog: pandas dataframe or numpy array
+    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+:return
+    generator, scaler 
+'''
+def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
+    ## check
+    print("Seasonality: using the last", s, "observations to predict the next 1")
+    
+    ## preprocess train
+    X_train, y_train, scaler = utils_preprocess_ts(ts_train, scaler=None, exog=exog, s=s)
+    
+    ## model
+    if model is None:
+        model = models.Sequential()
+        model.add( layers.LSTM(input_shape=X_train.shape[1:], units=50, activation='relu', return_sequences=False) )
+        model.add( layers.Dense(1) )
+        model.compile(optimizer='adam', loss='mean_absolute_error')
+    
+    ## train
+    print(model.summary())
+    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
+    fig, ax = plt.subplots()
+    ax.plot(training.history['loss'], label='loss')
+    ax.grid(True)
+    plt.xlabel('epoch')
+    plt.legend()
+    plt.show()
+    dtf_train = ts_train.to_frame(name="ts")
+    dtf_train["model"] = utils_fitted_lstm(ts_train, training.model, scaler, exog)
+    dtf_train["model"] = dtf_train["model"].fillna(method='bfill')
+    
+    ## test
+    preds = utils_predict_lstm(ts_train[-s:], training.model, scaler, pred_ahead=len(ts_test), exog=None)
+    dtf_test = ts_test.to_frame(name="ts").merge(pd.DataFrame(data=preds, index=ts_test.index, columns=["forecast"]),
+                                                 how='left', left_index=True, right_index=True)
+    
+    ## evaluate
+    dtf = dtf_train.append(dtf_test)
+    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="LSTM (memory:"+str(s)+")")
+    return dtf, training.model
+
+
+
+'''
+Forecast unknown future.
+'''
+def forecast_lstm(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+    ## fit
+    s = model.input_shape[-1]
+    X, y, scaler = utils_preprocess_ts(ts, scaler=None, exog=None, s=s)
+    training = model.fit(x=X, y=y, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
+    dtf = ts.to_frame(name="ts")
+    dtf["model"] = utils_fitted_lstm(ts, training.model, scaler, None)
+    dtf["model"] = dtf["model"].fillna(method='bfill')
+    
+    ## index
+    index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
+    
+    ## forecast
+    preds = utils_predict_lstm(ts[-s:], training.model, scaler, pred_ahead=len(index), exog=None)
+    dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
+    
+    ## plot
+    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    return dtf
 
 
 
@@ -558,151 +835,3 @@ def evaluate_prophet(model, years_train, years_fold, days_forecast, figsize=(20,
     fbPlot.plot(model, dtf_cv, figsize=figsize)
     kpi = diagnostics.performance_metrics(dtf_cv)
     return kpi
-
-
-
-###############################################################################
-#                            RNN                                              #
-###############################################################################
-'''
-Preprocess a ts partitioning into X and y.
-:parameter
-    :param ts: pandas timeseries
-    :param scaler: sklearn scaler object - if None is fitted
-    :param exog: pandas dataframe or numpy array
-    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-:return
-    X, y, scaler
-'''
-def ts_preprocessing(ts, scaler=None, exog=None, s=20):
-    ts = ts.sort_index(ascending=True).values
-    
-    ## scale
-    if scaler is None:
-        scaler = preprocessing.MinMaxScaler(feature_range=(0,1))
-    ts_preprocessed = scaler.fit_transform(ts.reshape(-1,1)).reshape(-1)        
-    
-    ## create X,y for train
-    ts_preprocessed = kprocessing.sequence.TimeseriesGenerator(data=ts_preprocessed, targets=ts_preprocessed, length=s, batch_size=1)
-    lst_X, lst_y = [], []
-    for i in range(len(ts_preprocessed)):
-        xi, yi = ts_preprocessed[i]
-        lst_X.append(xi)
-        lst_y.append(yi)
-    X = np.array(lst_X)
-    y = np.array(lst_y)
-    #X = np.reshape(X, (X.shape[0], 1, X.shape[1]))
-    return X, y, scaler
-
-
-
-'''
-'''
-def predict_lstm(ts, model, scaler, exog=None):
-    s = model.input_shape[-1]
-    lst_fitted = [np.nan]*s
-    for i in range(len(ts)):
-        end_ix = i + s
-        if end_ix > len(ts)-1:
-            break
-        X = ts[i:end_ix]
-        X = np.array(X)
-        X = np.reshape(X, (1, 1, X.shape[0]))
-        fit = model.predict(X)
-        fit = scaler.inverse_transform(fit)[0][0]
-        lst_fitted.append(fit)
-    return np.array(lst_fitted)
-
-
-
-'''
-'''
-def forecast_lstm(ts, model, scaler, exog=None, ahead=5):
-    ## preprocess
-    s = model.input_shape[-1]
-    ts = ts.sort_index(ascending=True).values
-    ts_preprocessed = list(scaler.fit_transform(ts.reshape(-1,1)))
-         
-    ## predict
-    lst_preds = []
-    for i in range(ahead):
-        i += 1
-        lst_X = ts_preprocessed[len(ts_preprocessed)-(s+1) : -1]
-        X = np.array(lst_X)
-        X = np.reshape(X, (1, 1, X.shape[0]))
-        pred = model.predict(X)
-        ts_preprocessed.append(pred)
-        pred = scaler.inverse_transform(pred)[0][0]
-        lst_preds.append(pred)
-    return np.array(lst_preds)
-
-
-
-'''
-Fits LSTM neural network.
-:parameter
-    :param ts: pandas timeseries
-    :param exog: pandas dataframe or numpy array
-    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-:return
-    generator, scaler 
-'''
-def fit_lstm(ts, exog=None, s=20, neurons=50, batch_size=1, epochs=100, test=0.2, ahead=5, freq="D", figsize=(20,13)):
-    ## split train/test
-    if exog is None:
-        ts_train, ts_test = utils_split_train_test(ts, exog=exog, test=test)
-        exog_train, exog_test = None, None
-    else:
-        ts_train, ts_test, exog_train, exog_test = utils_split_train_test(ts, exog=exog, test=test)
-    
-    ## preprocess train
-    X_train, y_train, scaler = ts_preprocessing(ts_train, scaler=None, exog=exog_train, s=s)
-       
-    ## lstm
-    model = models.Sequential()
-    model.add( layers.LSTM(input_shape=X_train.shape[1:], units=neurons, activation='tanh', return_sequences=False) )
-    model.add( layers.Dense(1) )
-    model.compile(optimizer='rmsprop', loss='mean_squared_error')
-    
-    ## train
-    print(model.summary())
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0)
-    print("--- training ---")
-    fig, ax = plt.subplots()
-    ax.plot(training.history['loss'], label='loss')
-    ax.grid(True)
-    plt.xlabel('epoch')
-    plt.legend()
-    plt.show()
-    
-    ## create dtf with fitted values
-    dtf = ts.to_frame(name="ts")
-    fitted_values = predict_lstm(ts_train, training.model, scaler, exog_train)
-    dtf["fitted"] = pd.DataFrame(data=fitted_values, index=ts_train.index)
-    
-    ## test
-    test_data = ts_train[-s:].append(ts_test) 
-    preds = predict_lstm(test_data, training.model, scaler, exog_test) 
-    dtf["test"] = pd.DataFrame(data=preds[-len(ts_test):], index=ts_test.index)
-    
-    ## forecast
-    ### refit final model with all data
-    print("--- testing ---")
-    X_train, y_train, scaler = ts_preprocessing(ts, scaler=None, exog=exog, s=s)
-    final_model = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0)
-    forecast = forecast_lstm(ts, final_model.model, scaler, exog, ahead)
-    ### predictions ahead
-    if freq is not None:
-        start = ts.index[-1] + datetime.timedelta(days=1)
-        end = start + datetime.timedelta(days=ahead-1)
-        forecast_index = pd.date_range(start=start, end=end, freq=freq)
-    else:
-        forecast_index = np.arange(ts.index[-1]+1, ts.index[-1]+1+ahead)  
-    dtf = dtf.append(pd.DataFrame(data=forecast, index=forecast_index, columns={"forecast"}))
-    
-    ## evaluate
-    dtf = utils_evaluate_forecast(dtf[s:], figsize=figsize, title="LSTM with "+str(neurons)+" Neurons")
-    return dtf, final_model.model
-
-
-  
