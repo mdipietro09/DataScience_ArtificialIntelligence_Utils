@@ -182,6 +182,7 @@ def utils_preprocess_img(img, resize=224, denoise=False, remove_color=False, mor
 
 
 '''
+Save array images into directory.
 '''
 def save_imgs(lst_imgs, dirpath, lst_names=None, i=0):
     for img in lst_imgs:
@@ -271,55 +272,29 @@ def train_yolo(lst_y, train_path="fs/training_yolo/", transfer_modelfile=""):
 ###############################################################################
 '''
 '''
-def imgs_preprocessing(dic_yX, size=224, remove_color=False, y_binary=True):
-    try:
-        ## list
-        lst_y = []
-        lst_X = []
-        for label in dic_yX.keys():
-            ### preprocessing
-            lst_imgs = [single_img_preprocessing(img, plot=False, remove_color=remove_color, size=size) for img in dic_yX[label]]      
-            ### partitioning
-            lst_X = lst_X + lst_imgs
-            lst_y = lst_y + [label]*len(lst_imgs)
-            print(label, "--> n:", len(lst_imgs))        
-        ## tensor
-        X = np.array(lst_X)  #(n, size, size, channels=rgb)
-        y = np.array(lst_y)  #(n, )
-        if y_binary is not True:
-            y = utils.to_categorical(y)
-        return {"X":X, "y":y}
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
-    
-
-'''
-'''
-def fit_cnn(X, y, batch_size=32, epochs=100, figsize=(20,13)):
+def fit_cnn(X, y, model=None, batch_size=32, epochs=100, figsize=(20,13)):
     ## cnn
-    ### layer 1 conv 5x5 (32 neurons) + pool 2x2
-    model = models.Sequential()
-    model.add( layers.Conv2D(input_shape=X.shape[1:], kernel_size=(5,5), filters=32, strides=(1,1), padding="valid", activation='relu') )
-    model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
-    ### layer 2 conv 3x3 (64 neurons) + pool 2x2
-    model.add( layers.Conv2D(kernel_size=(3,3), filters=64, strides=(1,1), padding="valid", activation='relu') )
-    model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
-    ### layer 3 fully connected (128 neuroni)
-    model.add( layers.Flatten() )
-    model.add( layers.Dense(units=128, activation="relu") )
-    model.add( layers.Dropout(rate=0.2) )
-    ### layer output (n_classes neurons)
-    if len(y.shape) == 1:
-        print("y binary --> using 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")
-        model.add( layers.Dense(units=1, activation="sigmoid") )
-        model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    else:
-        print("y multiclasses --> using", y.shape[1], "neurons with 'softmax' activation and 'categorical_crossentropy' loss")
-        model.add( layers.Dense(units=y.shape[1], activation="softmax") )
-        model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+    if model in None:
+        ### layer 1 conv 5x5 (32 neurons) + pool 2x2
+        model = models.Sequential()
+        model.add( layers.Conv2D(input_shape=X.shape[1:], kernel_size=(5,5), filters=32, strides=(1,1), padding="valid", activation='relu') )
+        model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
+        ### layer 2 conv 3x3 (64 neurons) + pool 2x2
+        model.add( layers.Conv2D(kernel_size=(3,3), filters=64, strides=(1,1), padding="valid", activation='relu') )
+        model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
+        ### layer 3 fully connected (128 neuroni)
+        model.add( layers.Flatten() )
+        model.add( layers.Dense(units=128, activation="relu") )
+        model.add( layers.Dropout(rate=0.2) )
+        ### layer output (n_classes neurons)
+        if len(y.shape) == 1:
+            print("y binary --> using 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")
+            model.add( layers.Dense(units=1, activation="sigmoid") )
+            model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+        else:
+            print("y multiclasses --> using", y.shape[1], "neurons with 'softmax' activation and 'categorical_crossentropy' loss")
+            model.add( layers.Dense(units=y.shape[1], activation="softmax") )
+            model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
     
     ## fit
     training = model.fit(x=X, y=y, batch_size=batch_size, epochs=epochs, shuffle=True)
@@ -336,7 +311,7 @@ def fit_cnn(X, y, batch_size=32, epochs=100, figsize=(20,13)):
 
 '''
 '''
-def fit_transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", layers_in=6, figsize=(20,13)):
+def fit_cnn_transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", layers_in=6, figsize=(20,13)):
     ## load pre-trained model
     if modelname == "ResNet50":
         model = applications.resnet50.ResNet50(weights='imagenet')          
@@ -449,7 +424,7 @@ def from_img_to_txt(img, modelpath, prepr_threshold=True, prepr_blur=True, model
         
         ## plot
         if plot == True:
-            plot_2_imgs(img, img_processed, title=None, figsize=figsize)
+            plot_imgs([img, img_processed], figsize=figsize)
         
         ## tesseract
         txt = pytesseract.image_to_string(Image.fromarray(img_processed), lang=None)

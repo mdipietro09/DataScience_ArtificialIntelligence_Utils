@@ -198,7 +198,7 @@ def find_outliers(ts, perc=0.01, figsize=(15,5)):
 '''
 Interpolate outliers in a ts.
 '''
-def treat_outliers(ts, outliers_idx, figsize=(15,5)):
+def remove_outliers(ts, outliers_idx, figsize=(15,5)):
     ts_clean = ts.copy()
     ts_clean.loc[outliers_idx] = np.nan
     ts_clean = ts_clean.interpolate(method="linear")

@@ -297,7 +297,7 @@ Applies the spacy NER model.
     :param ner: spacy object - "en_core_web_lg", "en_core_web_sm", "xx_ent_wiki_sm"
     :param tag_type: string or list - "all" or ["ORG","PERSON","NORP","GPE","EVENT", ...]
 :return
-    {"dtf":dtf, "dtf_tags":dtf_tags}
+    dtf
 '''
 def add_ner_spacy(dtf, column, ner=None, tag_type="all", unique=False, create_features=True):
     ## ner
@@ -446,7 +446,14 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
     classes = np.unique(y_test)
     y_test_array = pd.get_dummies(y_test, drop_first=False).values
     
-    ## confusion matrix
+    ## Accuracy, Precision, Recall
+    print("Check --> True:", y_test[0], "Pred:", predicted[0], "Prob:", np.max(predicted_prob[0]))
+    accuracy = metrics.accuracy_score(y_test, predicted)
+    print("Accuracy:",  round(accuracy,3))
+    print("Detail:")
+    print(metrics.classification_report(y_test, predicted))
+    
+    ## Plot confusion matrix
     cm = metrics.confusion_matrix(y_test, predicted)
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
@@ -456,7 +463,7 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
     plt.show()
     
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
-    ## roc
+    ## Plot roc
     fpr, tpr, roc_auc = dict(), dict(), dict()
     for i in range(len(classes)):
         fpr[i], tpr[i], thresholds = metrics.roc_curve(y_test_array[:,i], predicted_prob[:,i])
@@ -467,7 +474,7 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(20,10)):
     ax[0].legend(loc="lower right")
     ax[0].grid(True)
     
-    ## precision-recall curve
+    ## Plot precision-recall curve
     precision, recall = dict(), dict()
     for i in range(len(classes)):
         precision[i], recall[i], thresholds = metrics.precision_recall_curve(y_test_array[:,i], predicted_prob[:,i])
@@ -591,21 +598,14 @@ def ml_text_classif(X_train, y_train, X_test, y_test, preprocessing=False, vecto
     classifier = naive_bayes.MultinomialNB() if classifier is None else classifier
     model = pipeline.Pipeline([("vectorizer",vectorizer), ("model",classifier)]) if preprocessing == True else classifier
     
-    ## train/test
+    ## train
     model.fit(X_train, y_train)
+    
+    ## test
     predicted = model.predict(X_test)
     predicted_prob = model.predict_proba(X_test)
-
-    ## check
-    print("True:", y_test[0])
-    print("Pred:", predicted[0], np.max(predicted_prob[0]))
     
-    ## kpi
-    accuracy = metrics.accuracy_score(y_test, predicted)
-    print("Accuracy (overall correct predictions):",  round(accuracy,3))
-    print("Detail:")
-    print(metrics.classification_report(y_test, predicted))
-    return {"model":model, "predicted_prob":predicted_prob, "predicted":predicted}
+    return model, predicted_prob, predicted
 
 
 
@@ -613,6 +613,9 @@ def ml_text_classif(X_train, y_train, X_test, y_test, preprocessing=False, vecto
 #                            WORD2VEC (EMBEDDINGS)                            #
 ###############################################################################
 '''
+Create a list of lists of grams:
+    [ ["hi", "my", "name", "is", "Tom"], 
+      ["what", "is", "yours"] ]
 '''
 def utils_preprocess_ngrams(corpus, ngrams=1, grams_join=" "):
     lst_corpus = []
@@ -651,6 +654,9 @@ def fit_w2v(corpus, ngrams=1, grams_join="_", min_count=1, size=300, window=20, 
 
 
 '''
+Plot words in vector space (2d or 3d):
+    - If word is None: plot the whole vocabulary.
+    - else: plot only the words around the input word.
 '''
 def plot_w2v(nlp=None, plot_type="2d", word=None, top=20, figsize=(10,5)):
     nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
@@ -764,11 +770,10 @@ Fits a keras classification model.
     :param X_train: array of sequence
     :param y_train: array of classes
     :param X_test: array of sequence
-    :param y_test: array of classes
 :return
     model fitted and predictions
 '''
-def dl_text_classif(dic_y_mapping, embeddings, X_train, y_train, X_test, y_test, model=None, epochs=10, batch_size=256):
+def dl_text_classif(dic_y_mapping, X_train, y_train, X_test, model=None, embeddings=None, epochs=10, batch_size=256):
     ## encode y
     inverse_dic = {v:k for k,v in dic_y_mapping.items()}
     y_train = [inverse_dic[y] for y in y_train]   #y_test = [dic_y_mapping[y] for y in y_test]
@@ -803,15 +808,8 @@ def dl_text_classif(dic_y_mapping, embeddings, X_train, y_train, X_test, y_test,
     ## test
     predicted_prob = model.predict(X_test)
     predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob]
-    print("Check --> True:", y_test[0], "Pred:", predicted[0], "Prob:", np.max(predicted_prob[0]))
+    return training.model, predicted_prob, predicted
     
-    ## kpi
-    accuracy = metrics.accuracy_score(y_test, predicted)
-    print("Accuracy (overall correct predictions):",  round(accuracy,3))
-    print("Detail:")
-    print(metrics.classification_report(y_test, predicted))
-    return {"model":training.model, "predicted_prob":predicted_prob, "predicted":predicted}
-
 
 
 ###############################################################################
@@ -852,6 +850,7 @@ def utils_text_embeddings(corpus, nlp, value_na=0):
 
 
 '''
+Fit a PCA to model the general component common among the whole corpus.
 '''
 def fit_pca_w2v(corpus, nlp):
     ## corpus embedding
@@ -866,6 +865,7 @@ def fit_pca_w2v(corpus, nlp):
 
 
 '''
+Compute cosine similarity between 2 words or 2 vectors.
 '''
 def similarity_w2v(a, b, nlp=None):
     if type(a) is str and type(b) is str:

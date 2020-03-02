@@ -893,7 +893,6 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
     ## fit
     print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
     plt.ylabel("Loss")
@@ -901,9 +900,9 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
     plt.show()
     
     ## predict
-    predicted_prob = model.predict(X_test)
+    predicted_prob = training.model.predict(X_test)
     predicted = (predicted_prob > threshold)
-    return model, predicted_prob, predicted
+    return training.model, predicted_prob, predicted
 
 
 
@@ -1016,7 +1015,6 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
     ## fit
     print(model.summary())
     training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    model = training.model
     plt.plot(training.history['loss'], label='loss')
     plt.suptitle("Loss function during training", fontsize=20)
     plt.ylabel("Loss")
@@ -1024,10 +1022,10 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
     plt.show()
     
     ## predict
-    predicted = model.predict(X_test)
+    predicted = training.model.predict(X_test)
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted)
-    return model, predicted
+    return training.model, predicted
 
 
 
