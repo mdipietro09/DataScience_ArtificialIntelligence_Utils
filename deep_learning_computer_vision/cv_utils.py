@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from imageai import Detection
 from imageai.Detection.Custom import DetectionModelTrainer, CustomObjectDetection
-from tensorflow.keras import utils, models, layers, applications
+from tensorflow.keras import utils, models, layers, applications, preprocessing
 import pytesseract
 
 
@@ -117,7 +117,7 @@ def utils_color_distributions(lst_imgs, lst_y=None, figsize=(5,3)):
 '''
 Preprocess a single image.
 '''
-def utils_preprocess_img(img, resize=224, denoise=False, remove_color=False, morphology=False, segmentation=False, plot=False, figsize=(20,13)):
+def utils_preprocess_img(img, resize=256, denoise=False, remove_color=False, morphology=False, segmentation=False, plot=False, figsize=(20,13)):
     ## original
     img_processed = img
     lst_imgs = [img_processed]
@@ -218,16 +218,25 @@ def load_yolo(modelfile="yolo.h5", confjson=None):
 
 
 '''
-Predict with yolo and plot rectangles.
+Predict with yolo.
+:return
+    img array, dic with metadata, cropped img
 '''
 def obj_detect_yolo(img, yolo, min_prob=70, plot=False, figsize=(20,13)):
-    predicted_img, preds = yolo.detectObjectsFromImage(input_image=img, input_type="array", output_type="array",
-                                                       minimum_percentage_probability=min_prob,
-                                                       display_percentage_probability=True,
-                                                       display_object_name=True)
+    predicted_img, info = yolo.detectObjectsFromImage(input_image=img, input_type="array", output_type="array",
+                                                      minimum_percentage_probability=min_prob,
+                                                      display_percentage_probability=True, display_object_name=True)
+    ## crop image
+    if len(info) > 0: 
+        points = info[0]["box_points"]
+        cropped_img = predicted_img[points[0]:points[3], points[1]:points[2]]
+    else:
+        cropped_img = predicted_img
+    
+    ## plot full img
     if plot == True:
         utils_plot_img(predicted_img, figsize=figsize)
-    return predicted_img, preds
+    return predicted_img, info, cropped_img
 
 
 
@@ -271,13 +280,46 @@ def train_yolo(lst_y, train_path="fs/training_yolo/", transfer_modelfile=""):
 #             MODEL DESIGN & TESTING - MULTILABEL CLASSIFICATION              #
 ###############################################################################
 '''
+Plot loss and metrics of keras training.
 '''
-def fit_cnn(X, y, model=None, batch_size=32, epochs=100, figsize=(20,13)):
+def utils_plot_keras_training(training):
+    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    ax[0].set(title="Training")
+    ax11 = ax[0].twinx()
+    ax[0].plot(training.history['loss'], color='blue')
+    ax11.plot(training.history[metric], color='green')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss', color='blue')
+    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set(title="Validation")
+    ax22 = ax[1].twinx()
+    ax[1].plot(training.history['val_loss'], color='blue')
+    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss', color='blue')
+    ax22.set_ylabel(metric.capitalize(), color='green')
+    plt.show()
+    
+
+
+'''
+Fit convolutional neural network.
+:parameter
+    :param X_train: ImageGen object
+    :param X_test: ImageGen object
+    :param savepath: str - path where to save the model, if None doesn't save
+:return
+    model
+'''
+def fit_cnn(X_train, X_test, model=None, batch_size=32, epochs=100, savepath=None):
     ## cnn
-    if model in None:
+    if model is None:
+        img_shape = X_train.image_shape
+        n_classes = len(X_train.class_indices)
         ### layer 1 conv 5x5 (32 neurons) + pool 2x2
         model = models.Sequential()
-        model.add( layers.Conv2D(input_shape=X.shape[1:], kernel_size=(5,5), filters=32, strides=(1,1), padding="valid", activation='relu') )
+        model.add( layers.Conv2D(input_shape=img_shape, kernel_size=(5,5), filters=32, strides=(1,1), padding="valid", activation='relu') )
         model.add( layers.MaxPooling2D(pool_size=(2,2), padding="valid") )
         ### layer 2 conv 3x3 (64 neurons) + pool 2x2
         model.add( layers.Conv2D(kernel_size=(3,3), filters=64, strides=(1,1), padding="valid", activation='relu') )
@@ -287,119 +329,90 @@ def fit_cnn(X, y, model=None, batch_size=32, epochs=100, figsize=(20,13)):
         model.add( layers.Dense(units=128, activation="relu") )
         model.add( layers.Dropout(rate=0.2) )
         ### layer output (n_classes neurons)
-        if len(y.shape) == 1:
-            print("y binary --> using 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")
+        if n_classes == 2:
+            print("y binary --> output layer: 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")
             model.add( layers.Dense(units=1, activation="sigmoid") )
             model.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
         else:
-            print("y multiclasses --> using", y.shape[1], "neurons with 'softmax' activation and 'categorical_crossentropy' loss")
-            model.add( layers.Dense(units=y.shape[1], activation="softmax") )
+            print("y multiclasses --> output layer: ", n_classes, "neurons with 'softmax' activation and 'categorical_crossentropy' loss")
+            model.add( layers.Dense(units=n_classes, activation="softmax") )
             model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
     
-    ## fit
-    training = model.fit(x=X, y=y, batch_size=batch_size, epochs=epochs, shuffle=True)
-    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=False, figsize=figsize)
-    ax[0].plot(training.history['acc'], label='accuracy')
-    ax[1].plot(training.history['loss'], label='loss')
-    plt.xlabel('epoch')
-    plt.legend()
-    plt.show()
-    print(training.model.summary())
+    ## train
+    print(model.summary())
+    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=0)
+    if savepath is not None:
+        training.model.save(savepath+"cnn.h5")
+    
+    ## evaluate
+    utils_plot_keras_training(training)
     return training.model
 
 
 
 '''
+Fit convolutional neural network from pre-trained layers.
+:parameter
+    :param X_train: ImageGen object
+    :param X_test: ImageGen object
+    :param base: keras layers object
+    :param new_layers: keras layers object
+    :param savepath: str - path where to save the model, if None doesn't save
+:return
+    model
 '''
-def fit_cnn_transfer_learning(X, y, batch_size=32, epochs=100, modelname="MobileNet", layers_in=6, figsize=(20,13)):
-    ## load pre-trained model
-    if modelname == "ResNet50":
-        model = applications.resnet50.ResNet50(weights='imagenet')          
-    elif modelname == "MobileNet":
-        model = applications.mobilenet.MobileNet()
-        
+def fit_cnn_transfer_learning(X_train, X_test, base=None, new_layer=None, batch_size=32, epochs=100, savepath=None):
+    img_shape = X_train.image_shape
+    n_classes = len(X_train.class_indices)
+    if n_classes == 2:
+        output_neurons, activation, loss = 1, "sigmoid", "binary_crossentropy"
+    else:
+        output_neurons, activation, loss = n_classes, "softmax", "categorical_crossentropy"
+    
+    ## starting layers
+    if base is None:
+        base = applications.resnet50.ResNet50(weights='imagenet', include_top=False, input_shape=img_shape) 
+        for layer in base.layers:
+            layer.trainable = False
+    
     ## check input shapes
-    print(modelname, "requires input of shape", model.input.shape[1:])
-    print("X shape: ", X[0].shape)
-    if X[0].shape != model.input.shape[1:]:
-        print("Stopped for shape error")
-        return False     
+    print("--- check ---")
+    print("Base model requires input of shape:", base.input.shape[1:])
+    print("X shape:", X_train.image_shape)
+    if X_train.image_shape != base.input.shape[1:]:
+        print(" !!! Stopped for shape error")
+        return False    
     
-    ## add layer output to a selected hidden layer
-    hidden_layer = model.layers[-layers_in].output
-    if len(y.shape) == 1:
-        print("y binary --> using 1 neuron with 'sigmoid' activation and 'binary_crossentropy' loss")
-        output = layers.Dense(1, activation="sigmoid")(hidden_layer)
-    else:
-        print("y multiclasses --> using", y.shape[1], "neurons with 'softmax' activation and 'categorical_crossentropy' loss")
-        output = layers.Dense(y.shape[1], activation="softmax")(hidden_layer)    
-    new_model = models.Model(inputs=model.input, outputs=output)
+    ## add layers
+    if new_layer is None:
+        new_layer = base.output
+        new_layer = layers.Flatten()(new_layer)
+        new_layer = layers.Dense(units=1024, activation='relu')(new_layer)
+        new_layer = layers.Dropout(rate=0.5)(new_layer)
+        new_layer = layers.Dense(units=output_neurons, activation=activation)(new_layer)
     
-    ## specify the layers that must be re-trained (transfer learning as we keep the weights of the other layers)
-    for layer in new_model.layers[:-(layers_in-1)]:
-        layer.trainable = False
-    
+    ## create the model
+    model = models.Model(inputs=base.input, outputs=new_layer)
+    model.compile(loss=loss, optimizer="adam", metrics=["accuracy"])
+   
     ## train
-    if len(y.shape) == 1:
-        new_model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    else:
-        new_model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
-    training = new_model.fit(x=X, y=y, batch_size=batch_size, epochs=epochs, shuffle=True)
-    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=False, figsize=figsize)
-    ax[0].plot(training.history['acc'], label='accuracy')
-    ax[1].plot(training.history['loss'], label='loss')
-    plt.xlabel('epoch')
-    plt.legend()
-    plt.show()
-    print(training.model.summary())
-    return training.model   
+    print(model.summary())
+    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=0)
+    if savepath is not None:
+        training.model.save(savepath+"cnn_transfer.h5")
+    
+    ## evaluate
+    utils_plot_keras_training(training)
+    return training.model 
 
 
 
 '''
+Evaluates a model performance.
 '''
-def evaluate_cnn(model, X_test, Y_test):
+def evaluate_cnn(y_test, predicted, predicted_prob, figsize=(20,10)):
     return 0
 
-
-
-'''
-'''
-def predict_cnn(img, model, size=224, remove_color=False, dic_mapp_y=None):
-    img_preprocessed = single_img_preprocessing(img, size=size, remove_color=remove_color, plot=False)
-    img_preprocessed = np.expand_dims(img_preprocessed, axis=0)
-    pred = model.predict( img_preprocessed )        
-    return dic_mapp_y[int(pred[0][0])] if dic_mapp_y is not None else int(pred[0][0])
-
-
-
-'''
-'''
-def img_classification_keras(img, modelname="MobileNet"):
-    try:
-        ## prepare data and call model
-        x = cv2.resize(img, (224,224), interpolation=cv2.INTER_LINEAR)
-        x = np.expand_dims(x, axis=0)
-        
-        if modelname == "ResNet50":
-            model = applications.resnet50.ResNet50(weights='imagenet')
-            decode_preds = applications.resnet50.decode_predictions
-            x = applications.resnet50.preprocess_input(x)
-            
-        elif modelname == "MobileNet":
-            model = applications.mobilenet.MobileNet()
-            decode_preds = applications.mobilenet.decode_predictions
-            x = applications.mobilenet.preprocess_input(x)
-        
-        ## predict
-        preds = model.predict(x)
-        lst_preds = decode_preds(preds, top=3)[0]
-        return lst_preds
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-        
 
 
 ###############################################################################

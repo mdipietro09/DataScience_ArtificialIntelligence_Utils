@@ -6,7 +6,7 @@ import seaborn as sns
 import scipy
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
-from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble, linear_model
+from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble
 from lime import lime_tabular
 from tensorflow.keras import models, layers
 
@@ -890,16 +890,12 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
         ### compile
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     
-    ## fit
+    ## train
     print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    plt.plot(training.history['loss'], label='loss')
-    plt.suptitle("Loss function during training", fontsize=20)
-    plt.ylabel("Loss")
-    plt.xlabel("epochs")
-    plt.show()
+    utils_plot_keras_training(training)
     
-    ## predict
+    ## test
     predicted_prob = training.model.predict(X_test)
     predicted = (predicted_prob > threshold)
     return training.model, predicted_prob, predicted
@@ -1012,16 +1008,12 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
         ### compile
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=['mean_absolute_error'])
     
-    ## fit
+    ## train
     print(model.summary())
     training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    plt.plot(training.history['loss'], label='loss')
-    plt.suptitle("Loss function during training", fontsize=20)
-    plt.ylabel("Loss")
-    plt.xlabel("epochs")
-    plt.show()
+    utils_plot_keras_training(training)
     
-    ## predict
+    ## test
     predicted = training.model.predict(X_test)
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted)
@@ -1223,6 +1215,30 @@ def explainer(X_train, X_names, model, y_train, X_test_instance, task="classific
         explained.as_pyplot_figure()
     
     return dtf_explainer
+
+
+
+'''
+Plot loss and metrics of keras training.
+'''
+def utils_plot_keras_training(training):
+    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    ax[0].set(title="Training")
+    ax11 = ax[0].twinx()
+    ax[0].plot(training.history['loss'], color='blue')
+    ax11.plot(training.history[metric], color='green')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss', color='blue')
+    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set(title="Validation")
+    ax22 = ax[1].twinx()
+    ax[1].plot(training.history['val_loss'], color='blue')
+    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss', color='blue')
+    ax22.set_ylabel(metric.capitalize(), color='green')
+    plt.show()
 
 
 

@@ -762,6 +762,30 @@ def text2seq(corpus, vectorizer=None, vocabulary=None, maxlen=None, top=None, fi
 
 
 '''
+Plot loss and metrics of keras training.
+'''
+def utils_plot_keras_training(training):
+    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    ax[0].set(title="Training")
+    ax11 = ax[0].twinx()
+    ax[0].plot(training.history['loss'], color='blue')
+    ax11.plot(training.history[metric], color='green')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss', color='blue')
+    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set(title="Validation")
+    ax22 = ax[1].twinx()
+    ax[1].plot(training.history['val_loss'], color='blue')
+    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss', color='blue')
+    ax22.set_ylabel(metric.capitalize(), color='green')
+    plt.show()
+
+
+
+'''
 Fits a keras classification model.
 :parameter
     :param dic_y_mapping: dict - {0:"A", 1:"B", 2:"C"}
@@ -797,13 +821,8 @@ def dl_text_classif(dic_y_mapping, X_train, y_train, X_test, model=None, embeddi
     
     ## train
     print(model.summary())
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=1, validation_split=0.3)
-    fig, ax = plt.subplots()
-    ax.plot(training.history['loss'], label='loss')
-    ax.grid(True)
-    plt.xlabel('epoch')
-    plt.legend()
-    plt.show()
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
+    utils_plot_keras_training(training)
     
     ## test
     predicted_prob = model.predict(X_test)

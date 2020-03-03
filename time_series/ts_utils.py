@@ -593,6 +593,30 @@ def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figs
 #                            RNN                                              #
 ###############################################################################
 '''
+Plot loss and metrics of keras training.
+'''
+def utils_plot_keras_training(training):
+    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    ax[0].set(title="Training")
+    ax11 = ax[0].twinx()
+    ax[0].plot(training.history['loss'], color='blue')
+    ax11.plot(training.history[metric], color='green')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss', color='blue')
+    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set(title="Validation")
+    ax22 = ax[1].twinx()
+    ax[1].plot(training.history['val_loss'], color='blue')
+    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss', color='blue')
+    ax22.set_ylabel(metric.capitalize(), color='green')
+    plt.show()
+    
+    
+    
+'''
 Preprocess a ts partitioning into X and y.
 :parameter
     :param ts: pandas timeseries
@@ -669,7 +693,7 @@ def utils_predict_lstm(ts, model, scaler, pred_ahead, exog=None):
 
 
 '''
-Fits LSTM neural network.
+Fit Long short-term memory neural network.
 :parameter
     :param ts: pandas timeseries
     :param exog: pandas dataframe or numpy array
@@ -684,7 +708,7 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
     ## preprocess train
     X_train, y_train, scaler = utils_preprocess_ts(ts_train, scaler=None, exog=exog, s=s)
     
-    ## model
+    ## lstm
     if model is None:
         model = models.Sequential()
         model.add( layers.LSTM(input_shape=X_train.shape[1:], units=50, activation='relu', return_sequences=False) )
@@ -694,12 +718,8 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
     ## train
     print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
-    fig, ax = plt.subplots()
-    ax.plot(training.history['loss'], label='loss')
-    ax.grid(True)
-    plt.xlabel('epoch')
-    plt.legend()
-    plt.show()
+    utils_plot_keras_training(training)
+    
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = utils_fitted_lstm(ts_train, training.model, scaler, exog)
     dtf_train["model"] = dtf_train["model"].fillna(method='bfill')
