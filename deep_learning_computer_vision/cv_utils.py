@@ -1,11 +1,20 @@
 
+## for data
 import cv2
 import os
-import matplotlib.pyplot as plt
 import numpy as np
+
+## for plotting
+import matplotlib.pyplot as plt
+
+## for object detection
 from imageai import Detection
 from imageai.Detection.Custom import DetectionModelTrainer, CustomObjectDetection
-from tensorflow.keras import utils, models, layers, applications, preprocessing
+
+## for machine learning
+from tensorflow.keras import models, layers, applications
+
+## for ocr
 import pytesseract
 
 

@@ -1,16 +1,28 @@
 
+## for data
 import pandas as pd
 import numpy as np
+
+## for plotting
 import matplotlib.pyplot as plt
-import statsmodels.tsa.api as smt
+
+## for stationarity test
 import statsmodels.api as sm
-import pmdarima
-import arch
-from fbprophet import Prophet, diagnostics, plot as fbPlot
-pd.plotting.register_matplotlib_converters()
+
+## for outliers detection
 from sklearn import preprocessing, svm
+
+## for autoregressive models
+import pmdarima
+import statsmodels.tsa.api as smt
+import arch
+
+## for machine learning
 from tensorflow.keras import models, layers, preprocessing as kprocessing
-import datetime
+
+## for prophet
+from fbprophet import Prophet
+#pd.plotting.register_matplotlib_converters()
 
 
 
@@ -22,8 +34,6 @@ Plot ts with rolling mean and 95% confidence interval with rolling std.
 :parameter
     :param ts: pandas Series
     :param window: num for rolling stats
-:return
-    dtf: input dataframe with 2 new columns
 '''
 def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     rolling_mean = ts.rolling(window=window).mean()
@@ -53,7 +63,7 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
 Test stationarity by:
     - running Augmented Dickey-Fuller test wiht 95%
     - plotting mean and variance of a sample from data
-    - plottig autocorrelation and partial autocoreelation
+    - plottig autocorrelation and partial autocorrelation
 '''
 def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(15,10)):
     with plt.style.context(style='bmh'):
@@ -141,7 +151,7 @@ Decompose ts into
     - seasonality
     - residuals = y - (trend + seasonality)
 :parameter
-    :param s: num - number of observations per seasonality (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+    :param s: num - number of observations per season (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
 '''
 def decompose_ts(ts, s=250, figsize=(20,13)):
     decomposition = smt.seasonal_decompose(ts, freq=s)
@@ -213,13 +223,13 @@ def remove_outliers(ts, outliers_idx, figsize=(15,5)):
 #                 MODEL DESIGN & TESTING - FORECASTING                        #
 ###############################################################################
 '''
-Split train/test from .
+Split train/test from any given data point.
 :parameter
     :param ts: pandas Series
     :param exog: array len(ts) x n regressors
     :param test: num or str - test size (ex. 0.20) or index position (ex. "yyyy-mm-dd", 1000)
 :return
-    dtf: input dataframe with 2 new columns
+    ts_train, ts_test, exog_train, exog_test
 '''
 def split_train_test(ts, exog=None, test=0.20, plot=True, figsize=(15,5)):
     ## define splitting point
@@ -550,7 +560,7 @@ def fit_garch(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_t
     ## train
     arima = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
     garch = arch.arch_model(arima.resid, p=order[0], o=order[1], q=order[2], x=exog_train, dist='StudentsT', power=2.0, mean='Constant', vol='GARCH')
-    model = garch.fit(update_freq=s)
+    model = garch.fit(update_freq=seasonal_order[3])
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = model.conditional_volatility
     

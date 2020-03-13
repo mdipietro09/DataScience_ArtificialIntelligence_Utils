@@ -1,14 +1,23 @@
 
+## for data
 import pandas as pd
 import numpy as np
+
+## for plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+## for statistical tests
 import scipy
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
+
+## for machine learning
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble
-from lime import lime_tabular
 from tensorflow.keras import models, layers
+
+## for explainer
+from lime import lime_tabular
 
 
 

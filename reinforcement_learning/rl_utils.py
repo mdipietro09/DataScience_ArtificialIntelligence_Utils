@@ -1,11 +1,18 @@
 
+## for data
 import pandas as pd
 import numpy as np
-import random
+
+## for plotting
 import matplotlib.pyplot as plt
+
+## for envs
+import gym
+import random
 import matplotlib.animation as anm
 #conda install -c conda-forge ffmpeg
-import gym
+
+## for agents
 from tensorflow.keras import models, layers, optimizers
 import collections
 #from PIL import Image
@@ -13,43 +20,50 @@ import collections
 
 
 ###############################################################################
-#                 MAKE NEW ENVIRONMENT                                        #
+#                 CREATE NEW ENVIRONMENT                                      #
 ###############################################################################
+'''
+Create new environment class from scratch with all the necessary functions:
+    - __init__(): defines states_space, states_names | actions_space, actions_names | reward_range, goal.
+    - reset(): resets all the variables and uses __state__(). 
+    - step(): uses __take_action__(), __state__(), __reward__(), __done__(), __info__().
+    - render(): uses __render_html__(), __render_human__().
+'''
 class NewEnv(gym.Env):
     metadata = {'render.modes':['human','rgb_array','html'], 'video.frames_per_second':30}
     
     '''
     Define initial parameters of the env:
-        - observation_space_type: str - "array" or "img"
-        - observation_space: gym.spaces array - array (2d:[x,y] or 3d:[x,y,z]) or tensor (base,altezza,rgb_channels)
-        - action_space_type: str - "discrete" or "continuous"
-        - action_space: gym.spaces int - 3 (buy, hold, sell) or array
+        - states_space_type: str - "array" or "img"
+        - states_space: gym.spaces array - array (2d:[x,y] or 3d:[x,y,z]) or tensor (base,altezza,rgb_channels)
+        - actions_space_type: str - "discrete" or "continuous"
+        - actions_space: gym.spaces int - 3 (buy, hold, sell) or array
         - reward_range: tuple - (-np.inf, np.inf) or (-1, 1)
-        - goal - can be anything (value to reach, position in the states_space, number of steps to do)
+        - goal: can be anything (value to reach, position in the states_space, number of steps to do)
         - data: dtf 
     '''
-    def __init__(self, observation_space_type, actions_space_type, data, name):
+    def __init__(self, states_space_type, actions_space_type, data, name):
         super(NewEnv, self).__init__()
         
-        self.sate_names = ["Open","High","Low","Close","Volume","Balance","N shares held","Last price used"]
+        self.states_names = ["Open","High","Low","Close","Volume","Balance","N shares held","Last price used"]
         
-        if observation_space_type == "array":
-            self.observation_space = gym.spaces.Box(low=0, high=1, shape=(len(self.sate_names),len(self.sate_names)), dtype=np.float16)
-        elif observation_space_type == "img":
-            self.observation_space = gym.spaces.Box(low=0, high=255, shape=(255,255,3), dtype=np.uint8)
+        if states_space_type == "array":
+            self.states_space = gym.spaces.Box(low=0, high=1, shape=(len(self.states_names),len(self.states_names)), dtype=np.float16)
+        elif states_space_type == "img":
+            self.states_space = gym.spaces.Box(low=0, high=255, shape=(255,255,3), dtype=np.uint8)
             
-        self.action_names = ["Buy","Sell","Hold"]
+        self.actions_names = ["Buy","Sell","Hold"]
         
         if actions_space_type == "discrete":
-            self.action_space = gym.spaces.Discrete(len(self.action_names))
+            self.actions_space = gym.spaces.Discrete(len(self.actions_names))
         elif actions_space_type == "continuous":
-            self.action_space = gym.spaces.Box(low=np.array([0,0]), high=np.array([3,1]), dtype=np.float16)
+            self.actions_space = gym.spaces.Box(low=np.array([0,0]), high=np.array([3,1]), dtype=np.float16)
         
         self.reward_range = (-np.inf, np.inf)
         self.goal = None
         self.data = data
-        print("env:", name, "| states_space:", self.observation_space.shape[0], 
-              "| actions_space:", self.action_space.n, "| reward:", self.reward_range, "| goal:", self.goal)
+        print("env:", name, "| states_space:", self.states_space.shape[0], 
+              "| actions_space:", self.actions_space.n, "| reward:", self.reward_range, "| goal:", self.goal)
         
     
     '''
@@ -70,7 +84,7 @@ class NewEnv(gym.Env):
     
     
     '''
-    Take the action and pay the cost.
+    Take the action.
     '''
     def __take_action__(self, action):
         self.P1 = self.data["Close"].iloc[self.current_step]
@@ -132,7 +146,7 @@ class NewEnv(gym.Env):
     Execute one time step based on action.
     '''
     def step(self, action):
-        assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
+        assert self.actions_space.contains(action), "%r (%s) invalid" % (action, type(action))
         self.__take_action__(action)
         self.current_step += 1
         return self.__state__(), self.__reward__(), self.__done__(), self.__info__()
@@ -140,7 +154,7 @@ class NewEnv(gym.Env):
         
     '''
     Display as animation on jupyter notebook.
-    Return matplotlib animation object then --> IPython.display.HTML(env.render().to_html5_video())
+    Return matplotlib animation object then --> IPython.display.HTML(env.render("html").to_html5_video())
     '''
     def __render_html__(self):
         
@@ -171,9 +185,9 @@ class NewEnv(gym.Env):
     '''
     def render(self, mode='human', close=False):
         if mode == "human":
-            self.__render_human__()
+            return self.__render_human__()
         elif mode == "html":
-            self.__render_html__()
+            return self.__render_html__()
 
 
 
@@ -181,6 +195,7 @@ class NewEnv(gym.Env):
 #                 CUSTOMIZE GYM ENVIRONMENT                                   #
 ###############################################################################
 '''
+Query all the available envs in gym, filtered for names if provided.
 '''
 def get_gym_envs(lst_search=[]):
     lst_envs = [env for env in gym.envs.registry.all()]
@@ -194,97 +209,80 @@ def get_gym_envs(lst_search=[]):
 
 
 '''
+Adapt a gym environment class to all the necessary functions:
+    - __init__(): defines states_space, sate_names | actions_space, action_names | reward_range, goal.
+    - reset(): resets all the variables and uses __state__(). 
+    - step(): uses __take_action__(), __state__(), __reward__(), __done__(), __info__().
+    - render(): uses __render_html__(), __render_human__().
 '''
-class CustomGymEnv():
-    pass
+class CustomGymEnv(GymCarEnv):
     
+    def __init__(self, name):
+        super(CustomGymEnv, self).__init__()
+        
+        self.states_names = ["position", "velocity"]
+        self.states_space = GymCarEnv.observation_space
+        
+        self.actions_names = ["left", "stay", "right"]
+        self.actions_space = GymCarEnv.action_space
+        
+        self.reward_range = GymCarEnv.reward_range
+        self.goal = "reach position 0.5"
     
+        print("env:", name, "| states_space:", self.states_space.shape[0], 
+              "| actions_space:", self.actions_space.n, "| reward:", self.reward_range, "| goal:", self.goal)
+    
+
     
 ###############################################################################
 #                 ENVIRONMENT ANALYSIS                                        #
 ###############################################################################
 '''
-Get the state space and the number of actions in the env.
+Get info about the env:
+    - states
+    - actions
+    - goal
+    - rendering
 '''
-def get_env_space(env):
-    ## states
-    states_space = env.observation_space.shape
-    if states_space is None:
-        states_space = 0
-    else:
-        states_space = states_space[0]
-    ## actions
-    actions_space = env.action_space.n
-    return {"states_space":states_space, "actions_space":actions_space}
-
-
-
-'''
-Get the state space and the number of actions in the env.
-'''
-def get_env_goal(env):
+def env_info(env):
     try:
-        goal = env.goal
-        print("goal: Don't die") if goal is None else print("goal:", goal)
-    except:
-        print("goal: Don't die")
-
-
-
-'''
-Goal of the agent in the env.
-'''
-def utils_env_goal_achieved(env, state):
-    if env.goal is None:
-        return None
-    else:
-        return True if state[0] >= env.goal_position else False
-
-
-
-'''
-Visualize the agent in the env.
-:parameter
-    :param render_type: str - False, "html", "gym"
-'''
-def utils_env_render(env, render_type="gym"):
-    if render_type == "gym":
-        env.render()
-    elif render_type == "html":   
-        img = plt.imshow(env.render('rgb_array'))
-        img.set_data(env.render('rgb_array'))
-        #display.display(plt.gcf())
-        #display.clear_output(wait=True)
-
-
-
-'''
-'''
-def utils_env_get_img(env, state):
-    if "MountainCar" in str(env.env):
-        array = np.reshape(state, [1, len(state)])
-        img = Image.fromarray(array, 'RGB')
-        return img
+        ## states space
+        print("--- states space ---")
+        print("dim:", env.states_space)
+        print("names:", env.states_names)
+        
+        ## action space
+        print("--- actions space ---")
+        print("dim:", env.actions_space)
+        print("names:", env.actions_names)
+        
+        ## goal
+        print("--- goal ---")
+        print("goal: Don't die") if env.goal is None else print("goal:", env.goal)
+        
+    except Exception as e:
+        print("--- got error ---")
+        print(e)
 
 
 
 '''
 Play in the env in random mode.
 '''
-def env_random_play(env, episodes=10, render=False):
+def env_random_play(env, episodes=10, rendering=None):
     lst_logs = []
     for episode in range(episodes):
         env.reset()
         done, step, cumulated_reward = 0, 0, 0
         while not done:
             ## make action
-            state, reward, done, info = env.step( env.action_space.sample() )
+            state, reward, done, info = env.step( env.actions_space.sample() )
             ## result
             step += 1
             cumulated_reward += reward
             goal = utils_env_goal_achieved(env, state)
             ## render
-            if render is not False:
+            if rendering is not None:
                 utils_env_render(env, render_type=render)
             ## log
             lst_logs.append( (episode+1, step, state, reward, cumulated_reward, done, info, goal) )

@@ -1,22 +1,33 @@
 
+## for data
 import pandas as pd
 import numpy as np
+
+## for plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+## for analysis
 import re
 import langdetect 
 import nltk
+import wordcloud
+
+## for sentiment
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
+
+## for ner
+import spacy
+import collections
+
+## for machine learning
 from sklearn import preprocessing, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline, decomposition
 from tensorflow.keras import models, layers, preprocessing as kprocessing
-import wordcloud
+
+## for W2V
 import gensim
 import gensim.downloader as gensim_api
-import spacy
-import difflib
-import collections
-import random
 
 
 
