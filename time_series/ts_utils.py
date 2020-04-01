@@ -22,7 +22,10 @@ from tensorflow.keras import models, layers, preprocessing as kprocessing
 
 ## for prophet
 from fbprophet import Prophet
-#pd.plotting.register_matplotlib_converters()
+pd.plotting.register_matplotlib_converters()
+
+## for parametric fit
+from scipy import optimize
 
 
 
@@ -424,6 +427,12 @@ def simulate_rw(ts_train, ts_test, figsize=(15,10)):
 
 '''
 Forecast unknown future.
+:parameter
+    :param ts: pandas series
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
 '''
 def forecast_rw(ts, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
@@ -578,6 +587,13 @@ def fit_garch(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_t
 
 '''
 Forecast unknown future.
+:parameter
+    :param ts: pandas series
+    :param model: model object
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
 '''
 def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
@@ -748,6 +764,13 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
 
 '''
 Forecast unknown future.
+:parameter
+    :param ts: pandas series
+    :param model: model object
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
 '''
 def forecast_lstm(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
@@ -821,6 +844,13 @@ def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", figsiz
 
 '''
 Forecast unknown future.
+:parameter
+    :param ts: pandas series
+    :param model: model object
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
 '''
 def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
@@ -839,4 +869,103 @@ def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, f
     
     ## plot
     dtf = utils_plot_forecast(dtf, zoom=zoom)
+    return dtf
+
+
+
+###############################################################################
+#                          PARAMETRIC FITTING                                 #
+###############################################################################
+'''
+Fits a custom function.
+:parameter
+    :param X: array
+    :param y: array
+    :param f: function to fit (ex. logistic: f(X) = capacity / (1 + np.exp(-k*(X - midpoint)))
+                                or gaussian: f(X) = a * np.exp(-0.5 * ((X-mu)/sigma)**2)   )
+    :param kind: str - "logistic", "gaussian" or None
+    :param p0: array or list of initial parameters (ex. for logistic p0=[np.max(ts), 1, 1])
+:return
+    optimal params
+'''
+def fit_parametric(X, y, f=None, kind=None, p0=None):
+    ## define f(x) if not specified
+    if f is None:
+        if kind == "logistic":
+            f = lambda p,X: p[0] / (1 + np.exp(-p[1]*(X-p[2])))
+        elif find == "gaussian":
+            f = lambda p,X: p[0] * np.exp(-0.5 * ((X-p[1])/p[2])**2)
+    
+    ## fit optimal parameters
+    model, cov = optimize.curve_fit(f, X, y, maxfev=10000, p0=p0)
+    return model
+    
+
+
+'''
+Predict with optimal parameters.
+'''
+def predict_parametric(model, f, X):
+    fitted = f(X, model[0], model[1], model[2])
+    return fitted
+
+
+
+'''
+Plot parametric fitting.
+'''
+def utils_plot_parametric(dtf, zoom=30, figsize=(15,5)):
+    ## interval
+    dtf["residuals"] = dtf["ts"] - dtf["model"]
+    dtf["conf_int_low"] = dtf["forecast"] - 1.96*dtf["residuals"].std()
+    dtf["conf_int_up"] = dtf["forecast"] + 1.96*dtf["residuals"].std()
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    
+    ## entire series
+    dtf["ts"].plot(marker=".", linestyle='None', ax=ax[0], title="Parametric Fitting", color="black")
+    dtf["model"].plot(ax=ax[0], color="green")
+    dtf["forecast"].plot(ax=ax[0], grid=True, color="red")
+    ax[0].fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3)
+   
+    ## focus on last
+    first_idx = dtf[pd.notnull(dtf["forecast"])].index[0]
+    first_loc = dtf.index.tolist().index(first_idx)
+    zoom_idx = dtf.index[first_loc-zoom]
+    dtf.loc[zoom_idx:]["ts"].plot(marker=".", linestyle='None', ax=ax[1], color="black", 
+                                  title="Zoom on the last "+str(zoom)+" observations")
+    dtf.loc[zoom_idx:]["model"].plot(ax=ax[1], color="green")
+    dtf.loc[zoom_idx:]["forecast"].plot(ax=ax[1], grid=True, color="red")
+    ax[1].fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['conf_int_low'], 
+                       y2=dtf.loc[zoom_idx:]['conf_int_up'], color='b', alpha=0.3)
+    plt.show()
+    return dtf[["ts","model","residuals","conf_int_low","forecast","conf_int_up"]]
+
+
+
+'''
+Forecast unknown future.
+:parameter
+    :param ts: pandas series
+    :param f: function
+    :param model: list of optim params
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
+'''
+def forecast_parametric(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+    ## fit
+    fitted = predict_parametric(model, f, X=np.arange(len(ts)))
+    dtf = ts.to_frame(name="ts")
+    dtf["model"] = fitted
+    
+    ## index
+    index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
+    
+    ## forecast
+    preds = predict_parametric(model, f, X=np.arange(len(ts)+1, len(ts)+1+len(index)))
+    dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
+    
+    ## plot
+    utils_plot_parametric(dtf, zoom=zoom)
     return dtf
