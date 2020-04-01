@@ -905,7 +905,7 @@ def fit_parametric(X, y, f=None, kind=None, p0=None):
 '''
 Predict with optimal parameters.
 '''
-def predict_parametric(model, f, X):
+def utils_predict_parametric(model, f, X):
     fitted = f(X, model[0], model[1], model[2])
     return fitted
 
@@ -955,7 +955,7 @@ Forecast unknown future.
 '''
 def forecast_parametric(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
-    fitted = predict_parametric(model, f, X=np.arange(len(ts)))
+    fitted = utils_predict_parametric(model, f, X=np.arange(len(ts)))
     dtf = ts.to_frame(name="ts")
     dtf["model"] = fitted
     
@@ -963,7 +963,7 @@ def forecast_parametric(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
-    preds = predict_parametric(model, f, X=np.arange(len(ts)+1, len(ts)+1+len(index)))
+    preds = utils_predict_parametric(model, f, X=np.arange(len(ts)+1, len(ts)+1+len(index)))
     dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
     
     ## plot
