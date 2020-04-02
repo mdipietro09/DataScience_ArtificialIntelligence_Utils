@@ -874,7 +874,7 @@ def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, f
 
 
 ###############################################################################
-#                          PARAMETRIC FITTING                                 #
+#                    PARAMETRIC CURVE FITTING                                 #
 ###############################################################################
 '''
 Fits a custom function.
@@ -888,7 +888,7 @@ Fits a custom function.
 :return
     optimal params
 '''
-def fit_parametric(X, y, f=None, kind=None, p0=None):
+def fit_curve(X, y, f=None, kind=None, p0=None):
     ## define f(x) if not specified
     if f is None:
         if kind == "logistic":
@@ -905,7 +905,7 @@ def fit_parametric(X, y, f=None, kind=None, p0=None):
 '''
 Predict with optimal parameters.
 '''
-def utils_predict_parametric(model, f, X):
+def utils_predict_curve(model, f, X):
     fitted = f(X, model[0], model[1], model[2])
     return fitted
 
@@ -953,9 +953,9 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_parametric(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_curve(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
     ## fit
-    fitted = utils_predict_parametric(model, f, X=np.arange(len(ts)))
+    fitted = utils_predict_curve(model, f, X=np.arange(len(ts)))
     dtf = ts.to_frame(name="ts")
     dtf["model"] = fitted
     
@@ -963,7 +963,7 @@ def forecast_parametric(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
-    preds = utils_predict_parametric(model, f, X=np.arange(len(ts)+1, len(ts)+1+len(index)))
+    preds = utils_predict_curve(model, f, X=np.arange(len(ts)+1, len(ts)+1+len(index)))
     dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
     
     ## plot
