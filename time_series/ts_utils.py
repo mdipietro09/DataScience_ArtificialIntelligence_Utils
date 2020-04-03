@@ -896,7 +896,7 @@ def fit_curve(X, y, f=None, kind=None, p0=None):
         elif find == "gaussian":
             f = lambda p,X: p[0] * np.exp(-0.5 * ((X-p[1])/p[2])**2)
     
-    ## fit optimal parameters
+    ## find optimal parameters
     model, cov = optimize.curve_fit(f, X, y, maxfev=10000, p0=p0)
     return model
     
@@ -923,8 +923,8 @@ def utils_plot_parametric(dtf, zoom=30, figsize=(15,5)):
     
     ## entire series
     dtf["ts"].plot(marker=".", linestyle='None', ax=ax[0], title="Parametric Fitting", color="black")
-    dtf["model"].plot(ax=ax[0], color="green")
-    dtf["forecast"].plot(ax=ax[0], grid=True, color="red")
+    dtf["model"].plot(ax=ax[0], color="green", label="model", legend=True)
+    dtf["forecast"].plot(ax=ax[0], grid=True, color="red", label="forecast", legend=True)
     ax[0].fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3)
    
     ## focus on last
