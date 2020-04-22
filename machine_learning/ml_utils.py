@@ -931,8 +931,8 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
     ## Precision e Recall
     recall = metrics.recall_score(y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
     precision = metrics.precision_score(y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
-    print("Recall (ability to get all 1s):", round(recall,3))  #in pratica quanti 1 ho beccato
-    print("Precision (success rate when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
+    print("Recall (all 1s predicted right):", round(recall,3))  #in pratica quanti 1 ho beccato
+    print("Precision (confidence when predicting a 1):", round(precision,3))  #in pratica quanti 1 erano veramente 1
     print("Detail:")
     print(metrics.classification_report(y_test, predicted, target_names=[str(i) for i in classes]))
        
@@ -1040,8 +1040,8 @@ def evaluate_regr_model(y_test, predicted, figsize=(20,10)):
     ## Kpi
     print("R2:", round(metrics.r2_score(y_test, predicted), 3))
     print("Explained variance:", round(metrics.explained_variance_score(y_test, predicted), 3))
-    print("Mean Absolute Error:", round(metrics.mean_absolute_error(y_test, predicted), 3))
-    print("Mean Absolute Error %:", round(np.mean(np.abs((y_test-predicted)/predicted))*100, 3))
+    print("Mean Absolute Error (|y-pred|):", round(metrics.mean_absolute_error(y_test, predicted), 3))
+    print("Mean Absolute Error % (|y-pred|/y):", round(np.mean(np.abs((y_test-predicted)/predicted))*100, 3))
     
     ## Plot
     from statsmodels.graphics.api import abline_plot
