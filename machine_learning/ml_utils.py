@@ -846,16 +846,16 @@ def fit_classif_model(model, X_train, y_train, X_test, threshold=0.5):
 '''
 Perform k-fold validation.
 '''
-def utils_kfold_validation(model, X_train, y_train, cv=10, figsize=(10,10)):
+def utils_kfold_validation(model, X, y, cv=10, figsize=(10,5)):
     cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
     tprs, aucs = [], []
     mean_fpr = np.linspace(0,1,100)
     fig = plt.figure(figsize=figsize)
     
     i = 1
-    for train, test in cv.split(X_train, y_train):
-        prediction = model.fit(X_train[train], y_train[train]).predict_proba(X_train[test])
-        fpr, tpr, t = metrics.roc_curve(y_train[test], prediction[:, 1])
+    for train, test in cv.split(X, y):
+        prediction = model.fit(X[train], y[train]).predict_proba(X[test])
+        fpr, tpr, t = metrics.roc_curve(y[test], prediction[:, 1])
         tprs.append(scipy.interp(mean_fpr, fpr, tpr))
         roc_auc = metrics.auc(fpr, tpr)
         aucs.append(roc_auc)
@@ -868,11 +868,41 @@ def utils_kfold_validation(model, X_train, y_train, cv=10, figsize=(10,10)):
     plt.plot(mean_fpr, mean_tpr, color='blue', label=r'Mean ROC (AUC = %0.2f )' % (mean_auc), lw=2, alpha=1)
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title('K-FOLD VALIDATION')
+    plt.title('K-Fold Validation')
     plt.legend(loc="lower right")
     plt.show()
+
+
+
+'''
+Find the best classif threshold for metrics: accuracy, precision, recall, f1
+'''
+def utils_threshold_selection(model, X, y, figsize=(10,5)):
+    ## calculate scores for different thresholds
+    dic_scores = {'accuracy':[], 'precision':[], 'recall':[], 'f1':[]}
+    XX_train, XX_test, yy_train, yy_test = model_selection.train_test_split(X, y, test_size=0.2)
+    predicted_prob = model.fit(XX_train, yy_train).predict_proba(XX_test)[:,1]
+    thresholds = []
+    for threshold in np.arange(0.1, 1, step=0.1):
+        predicted = (predicted_prob > threshold)
+        thresholds.append(threshold)
+        dic_scores["accuracy"].append(metrics.accuracy_score(yy_test, predicted))
+        dic_scores["precision"].append(metrics.precision_score(yy_test, predicted))
+        dic_scores["recall"].append(metrics.recall_score(yy_test, predicted))
+        dic_scores["f1"].append(metrics.f1_score(yy_test, predicted))
     
-    
+    ## find best
+    dtf_scores = pd.DataFrame(dic_scores).set_index(pd.Index(thresholds))
+    for k in dic_scores.keys():
+        print(k, "--> best threshold:", round(dtf_scores[dtf_scores[k]==dtf_scores[k].max()][k].index[0], 1))
+        
+    ## plot
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set(title="Threshold Selection", xlabel="Threshold", ylabel="Scores")
+    dtf_scores.plot(ax=ax)
+    plt.show()
+
+
 
 '''
 Tunes the hyperparameters of a sklearn model.
@@ -881,37 +911,46 @@ Tunes the hyperparameters of a sklearn model.
     :param param_dic: dict - dictionary of parameters to tune
     :param X_train: array - feature matrix
     :param y_train: array - y vector
-    :param scoring: string - "roc_auc" or "accuracy"
+    :param scoring: string - "roc_auc", "accuracy", "f1", "precision", "recall"
     :param searchtype: string - "RandomSearch" or "GridSearch"
 :return
     model with hyperparams tuned
 '''
-def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
+def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scoring="f1", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
     ## params
     model_base = ensemble.GradientBoostingClassifier() if model_base is None else model_base
     param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
-            
+    dic_scores = {'accuracy':metrics.make_scorer(metrics.accuracy_score), 'precision':metrics.make_scorer(metrics.precision_score), 
+                  'recall':metrics.make_scorer(metrics.recall_score), 'f1':metrics.make_scorer(metrics.f1_score)}
+    
     ## Search
     print("---", searchtype, "---")
     if searchtype == "RandomSearch":
-        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, y_train)
+        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring, refit=scoring).fit(X_train, y_train)
         print("Best Model parameters:", random_search.best_params_)
-        print("Best Model mean "+scoring+":", random_search.best_score_)
+        print("Best Model "+scoring+":", round(random_search.best_score_, 2))
         model = random_search.best_estimator_
         
     elif searchtype == "GridSearch":
         grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, y_train)
         print("Best Model parameters:", grid_search.best_params_)
-        print("Best Model mean "+scoring+":", grid_search.best_score_)
+        print("Best Model mean "+scoring+":", round(grid_search.best_score_, 2))
         model = grid_search.best_estimator_
     
     ## K fold validation
     print("")
-    Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=y_train, cv=cv, scoring=scoring)
-    Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=y_train, cv=cv, scoring=scoring)
     print("--- Kfold Validation ---")
-    print("mean", scoring, "- base:", Kfold_base.mean(), " --> best:", Kfold_model.mean())
+    Kfold_base = model_selection.cross_validate(estimator=model_base, X=X_train, y=y_train, cv=cv, scoring=dic_scores)
+    Kfold_model = model_selection.cross_validate(estimator=model, X=X_train, y=y_train, cv=cv, scoring=dic_scores)
+    for score in dic_scores.keys():
+        print(score, "mean - base model:", round(Kfold_base["test_"+score].mean(),2), " --> best model:", round(Kfold_model["test_"+score].mean()))
     utils_kfold_validation(model, X_train, y_train, cv=cv, figsize=figsize)
+    
+    ## Threshold analysis
+    print("")
+    print("--- Threshold Selection ---")
+    utils_threshold_selection(model, X_train, y_train, figsize=figsize)
+    
     return model
 
 
@@ -976,10 +1015,12 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
     print("Auc:", round(auc,2))
     
     ## Precision e Recall
-    recall = metrics.recall_score(y_test, predicted)  #capacità del modello di beccare tutti gli 1 nel dataset (quindi anche a costo di avere falsi pos)
-    precision = metrics.precision_score(y_test, predicted)  #capacità del modello di azzeccare quando dice 1 (quindi non dare falsi pos)
-    print("Recall (all 1s predicted right):", round(recall,2))  #in pratica quanti 1 ho beccato
-    print("Precision (confidence when predicting a 1):", round(precision,2))  #in pratica quanti 1 erano veramente 1
+    recall = metrics.recall_score(y_test, predicted)  #= true 1s / all 1s in test (got and missed)
+    precision = metrics.precision_score(y_test, predicted)  #= true 1s / all 1s predicted (true 1s + false 1s)
+    f1 = metrics.f1_score(y_test, predicted)  #=2 * (precision * recall) / (precision + recall)
+    print("Recall (all 1s predicted right):", round(recall,2))  #true positive rate, how many 1s I got
+    print("Precision (confidence when predicting a 1):", round(precision,2))  #how many 1s were really 1s
+    print("F1 score:", round(f1,2))
     print("Detail:")
     print(metrics.classification_report(y_test, predicted, target_names=[str(i) for i in classes]))
        
@@ -1023,7 +1064,7 @@ Fits a sklearn regression model.
 '''
 def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):  
     ## model
-    model = linear_model.LinearRegression() if model is None else model
+    model = ensemble.GradientBoostingRegressor() if model is None else model
     
     ## train/test
     model.fit(X_train, y_train)
@@ -1031,48 +1072,6 @@ def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted.reshape(-1,1))
     return model, predicted
-        
-
-
-'''
-Tunes the hyperparameters of a sklearn model.
-:parameter
-    :param model_base: model object - model istance to tune (before fitting)
-    :param param_dic: dict - dictionary of parameters to tune
-    :param X_train: array - feature matrix
-    :param y_train: array - y vector
-    :param scoring: string - "roc_auc" or "accuracy"
-    :param searchtype: string - "RandomSearch" or "GridSearch"
-:return
-    model with hyperparams tuned
-'''
-def tune_regr_model(X_train, y_train, model_base=None, param_dic=None, scoring="accuracy", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
-    ## params
-    model_base = ensemble.GradientBoostingClassifier() if model_base is None else model_base
-    param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
-            
-    ## Search
-    print("---", searchtype, "---")
-    if searchtype == "RandomSearch":
-        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, y_train)
-        print("Best Model parameters:", random_search.best_params_)
-        print("Best Model mean "+scoring+":", random_search.best_score_)
-        model = random_search.best_estimator_
-        
-    elif searchtype == "GridSearch":
-        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, y_train)
-        print("Best Model parameters:", grid_search.best_params_)
-        print("Best Model mean "+scoring+":", grid_search.best_score_)
-        model = grid_search.best_estimator_
-    
-    ## K fold validation
-    print("")
-    Kfold_base = model_selection.cross_val_score(estimator=model_base, X=X_train, y=y_train, cv=cv, scoring=scoring)
-    Kfold_model = model_selection.cross_val_score(estimator=model, X=X_train, y=y_train, cv=cv, scoring=scoring)
-    print("--- Kfold Validation ---")
-    print("mean", scoring, "- base:", Kfold_base.mean(), " --> best:", Kfold_model.mean())
-    utils_kfold_validation(model, X_train, y_train, cv=cv, figsize=figsize)
-    return model
 
 
 
