@@ -881,7 +881,7 @@ def utils_threshold_selection(model, X, y, figsize=(10,5)):
     ## calculate scores for different thresholds
     dic_scores = {'accuracy':[], 'precision':[], 'recall':[], 'f1':[]}
     XX_train, XX_test, yy_train, yy_test = model_selection.train_test_split(X, y, test_size=0.2)
-    predicted_prob = model.fit(XX_train, yy_train).predict_proba(XX_test)[:,1]
+    predicted_prob = model.fit(XX_train, yy_train).predict_proba(XX_test)[:,1] #if "tensorflow" not in type(model) else model.fit(XX_train, yy_train, batch_size=32, epochs=100, verbose=0).model.predict(XX_test)
     thresholds = []
     for threshold in np.arange(0.1, 1, step=0.1):
         predicted = (predicted_prob > threshold)
@@ -926,13 +926,13 @@ def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scorin
     ## Search
     print("---", searchtype, "---")
     if searchtype == "RandomSearch":
-        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring, refit=scoring).fit(X_train, y_train)
+        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=dic_scores, refit=scoring).fit(X_train, y_train)
         print("Best Model parameters:", random_search.best_params_)
         print("Best Model "+scoring+":", round(random_search.best_score_, 2))
         model = random_search.best_estimator_
         
     elif searchtype == "GridSearch":
-        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, y_train)
+        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=dic_scores, refit=scoring).fit(X_train, y_train)
         print("Best Model parameters:", grid_search.best_params_)
         print("Best Model mean "+scoring+":", round(grid_search.best_score_, 2))
         model = grid_search.best_estimator_
@@ -970,6 +970,24 @@ Fits a keras artificial neural network.
 def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, threshold=0.5):
     ## model
     if model is None:
+        ### define F1 metrics for Keras
+        def Recall(y, y_hat):
+            true_positives = K.sum(K.round(K.clip(y * y_hat, 0, 1)))
+            possible_positives = K.sum(K.round(K.clip(y, 0, 1)))
+            recall = true_positives / (possible_positives + K.epsilon())
+            return recall
+
+        def Precision(y, y_hat):
+            true_positives = K.sum(K.round(K.clip(y * y_hat, 0, 1)))
+            predicted_positives = K.sum(K.round(K.clip(y_hat, 0, 1)))
+            precision = true_positives / (predicted_positives + K.epsilon())
+            return precision
+
+        def F1(y, y_hat):
+            precision = Precision(y, y_hat)
+            recall = Recall(y, y_hat)
+            return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
         ### initialize
         model = models.Sequential()
         n_features = X_train.shape[1]
@@ -983,7 +1001,7 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
         ### layer output
         model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
         ### compile
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
     
     ## train
     print(model.summary())
@@ -1003,8 +1021,9 @@ Evaluates a model performance.
     :param y_test: array
     :param predicted: array
     :param predicted_prob: array
+    :param show_thresholds: bool - if True annotates thresholds on the curves
 '''
-def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
+def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=True, figsize=(20,10)):
     classes = np.unique(y_test)
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
     
@@ -1026,24 +1045,47 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, figsize=(20,10)):
        
     ## Plot confusion matrix
     cm = metrics.confusion_matrix(y_test, predicted, labels=classes)
-    sns.heatmap(cm, annot=True, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
+    sns.heatmap(cm, annot=True, annot_kws={"size":15}, fmt='d', ax=ax[0], cmap=plt.cm.Blues, cbar=False)
     ax[0].set(xlabel="Pred", ylabel="True", title="Confusion matrix")
     ax[0].set_yticklabels(labels=classes, rotation=0)
  
     ## Plot roc
-    fpr, tpr, thresholds = metrics.roc_curve(y_test, predicted_prob)
-    roc_auc = metrics.auc(fpr, tpr)     
-    ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='ROC curve (area = %0.2f)' % roc_auc)
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, predicted_prob)    
+    ax[1].plot(fpr, tpr, color='darkorange', lw=3, label='area = %0.2f' % metrics.auc(fpr, tpr))
     ax[1].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
-    ax[1].set(xlim=[0.0,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
+    ax[1].hlines(y=recall, xmin=-0.05, xmax=1-cm[0,0]/(cm[0,0]+cm[0,1]), color='red', linestyle='--', alpha=0.7, label="chosen threshold")
+    ax[1].vlines(x=1-cm[0,0]/(cm[0,0]+cm[0,1]), ymin=0, ymax=recall, color='red', linestyle='--', alpha=0.7)
+    ax[1].set(xlim=[-0.05,1], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")     
     ax[1].legend(loc="lower right")
     ax[1].grid(True)
-
+    if show_thresholds is True:
+        thres_in_plot = []
+        for i,t in enumerate(thresholds):
+            t = np.round(t,1)
+            if t not in thres_in_plot:
+                ax[1].annotate(t, xy=(fpr[i],tpr[i]), xytext=(fpr[i],tpr[i]), textcoords='offset points', ha='left', va='bottom')
+                thres_in_plot.append(t)
+            else:
+                next
+    
     ## Plot precision-recall curve
-    precision, recall, thresholds = metrics.precision_recall_curve(y_test, predicted_prob)
-    ax[2].plot(recall, precision, lw=3)
-    ax[2].set(xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
+    precisions, recalls, thresholds = metrics.precision_recall_curve(y_test, predicted_prob)
+    ax[2].plot(recalls, precisions, color='darkorange', lw=3, label='area = %0.2f' % metrics.auc(recalls, precisions))
+    ax[2].plot([0,1], [(cm[1,0]+cm[1,0])/len(y_test), (cm[1,0]+cm[1,0])/len(y_test)], linestyle='--', color='navy', lw=3)
+    ax[2].hlines(y=precision, xmin=0, xmax=recall, color='red', linestyle='--', alpha=0.7, label="chosen threshold")
+    ax[2].vlines(x=recall, ymin=0, ymax=precision, color='red', linestyle='--', alpha=0.7)
+    ax[2].set(xlim=[0.0,1.05], ylim=[0.0,1.05], xlabel='Recall', ylabel="Precision", title="Precision-Recall curve")
+    ax[2].legend(loc="lower left")
     ax[2].grid(True)
+    if show_thresholds is True:
+        thres_in_plot = []
+        for i,t in enumerate(thresholds):
+            t = np.round(t,1)
+            if t not in thres_in_plot:
+                ax[2].annotate(np.round(t,1), xy=(recalls[i],precisions[i]), xytext=(recalls[i],precisions[i]), textcoords='offset points', ha='left', va='bottom')
+                thres_in_plot.append(t)
+            else:
+                next
     plt.show()
      
 
@@ -1334,35 +1376,29 @@ def explainer(X_train, X_names, model, y_train, X_test_instance, task="classific
 Plot loss and metrics of keras training.
 '''
 def utils_plot_keras_training(training):
-    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
-    # fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,3))  
-    # ax[0].set(title="Loss")
-    # ax[0].plot(training.history['loss'], label='training')
-    # ax[0].plot(training.history['val_loss'], label='validation')
-    # ax[0].set_xlabel('Epochs')
-    # ax[0].legend()
-    # ax[0].grid(True)
-    # ax[1].set(title="Accuracy")
-    # ax[1].plot(training.history[metric], label='training')
-    # ax[1].plot(training.history['val_'+metric], label='validation')
-    # ax[1].set_xlabel('Epochs')
-    # ax[1].grid(True)
-    # plt.show()
+    metrics = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)]
     fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    
+    ## training
     ax[0].set(title="Training")
     ax11 = ax[0].twinx()
-    ax[0].plot(training.history['loss'], color='blue')
-    ax11.plot(training.history[metric], color='green')
+    ax[0].plot(training.history['loss'], color='black')
     ax[0].set_xlabel('Epochs')
-    ax[0].set_ylabel('Loss', color='blue')
-    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[0].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax11.plot(training.history[metric], label=metric)
+    ax11.set_ylabel("Score", color='steelblue')
+    ax11.legend()
+    
+    ## validation
     ax[1].set(title="Validation")
     ax22 = ax[1].twinx()
-    ax[1].plot(training.history['val_loss'], color='blue')
-    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].plot(training.history['val_loss'], color='black')
     ax[1].set_xlabel('Epochs')
-    ax[1].set_ylabel('Loss', color='blue')
-    ax22.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax22.plot(training.history['val_'+metric], label=metric)
+    ax22.set_ylabel("Score", color="steelblue")
     plt.show()
 
 
