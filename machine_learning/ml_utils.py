@@ -11,6 +11,7 @@ import seaborn as sns
 import scipy
 import statsmodels.formula.api as smf
 import statsmodels.api as sm
+import ppscore
 
 ## for machine learning
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble
@@ -296,51 +297,6 @@ def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
         plt.show()
 
 
-    
-'''
-Computes correlation/dependancy and p-value (prob of happening something different than what observed in the sample)
-'''
-def test_corr(dtf, x, y, max_cat=20):
-    ## num vs num --> pearson
-    if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
-        dtf_noNan = dtf[dtf[x].notnull()]  #can't have nan
-        coeff, p = scipy.stats.pearsonr(dtf_noNan[x], dtf_noNan[y])
-        coeff, p = round(coeff, 3), round(p, 3)
-        conclusion = "Significant" if p < 0.05 else "Non-Significant"
-        print("Pearson Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
-    
-    ## cat vs cat --> cramer (chiquadro)
-    elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "cat"):
-        cont_table = pd.crosstab(index=dtf[x], columns=dtf[y])
-        chi2_test = scipy.stats.chi2_contingency(cont_table)
-        chi2, p = chi2_test[0], chi2_test[1]
-        n = cont_table.sum().sum()
-        phi2 = chi2/n
-        r,k = cont_table.shape
-        phi2corr = max(0, phi2-((k-1)*(r-1))/(n-1))
-        rcorr = r-((r-1)**2)/(n-1)
-        kcorr = k-((k-1)**2)/(n-1)
-        coeff = np.sqrt(phi2corr/min((kcorr-1), (rcorr-1)))
-        coeff, p = round(coeff, 3), round(p, 3)
-        conclusion = "Significant" if p < 0.05 else "Non-Significant"
-        print("Cramer Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
-    
-    ## num vs cat --> 1way anova (f: the means of the groups are different)
-    else:
-        if (utils_recognize_type(dtf, x, max_cat) == "cat"):
-            cat,num = x,y
-        else:
-            cat,num = y,x
-        model = smf.ols(num+' ~ '+cat, data=dtf).fit()
-        table = sm.stats.anova_lm(model)
-        p = table["PR(>F)"][0]
-        coeff, p = None, round(p, 3)
-        conclusion = "Correlated" if p < 0.05 else "Non-Correlated"
-        print("Anova F: the variables are", conclusion, "(p-value: "+str(p)+")")
-        
-    return coeff, p
-
-
      
 '''
 Moves columns into a dtf.
@@ -390,7 +346,93 @@ def CheckAndSave(dtf, pk, save=False, path=None, dtf_name=None):
     except Exception as e:
         print("--- got error ---")
         print(e)
+
+
+
+###############################################################################
+#                         CORRELATION                                         #
+###############################################################################        
+'''
+Computes the correlation matrix.
+:parameter
+    :param dtf: dataframe - input data
+    :param method: str - "pearson" (numeric), "spearman" (categorical), "kendall"
+    :param negative: bool - if False it takes the absolute values of correlation
+    :param lst_filters: list - filter rows to show
+    :param annotation: logic - plot setting
+'''
+def corr_matrix(dtf, method="pearson", negative=True, lst_filters=[], annotation=True, figsize=(10,5)):    
+    ## factorize
+    dtf_corr = dtf.copy()
+    for col in dtf_corr.columns:
+        if dtf_corr[col].dtype == "O":
+            print("--- WARNING: Factorizing", dtf_corr[col].nunique(),"labels of", col, "---")
+            dtf_corr[col] = dtf_corr[col].factorize(sort=True)[0]
+    ## corr matrix
+    dtf_corr = dtf_corr.corr(method=method) if len(lst_filters) == 0 else dtf_corr.corr(method=method).loc[lst_filters]
+    dtf_corr = dtf_corr if negative is True else dtf_corr.abs()
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(dtf_corr, annot=annotation, fmt='.2f', cmap="YlGnBu", ax=ax, cbar=True, linewidths=0.5)
+    plt.title(method + " correlation")
+    return dtf_corr
+
+
+
+'''
+Computes the pps matrix.
+'''
+def pps_matrix(dtf, annotation=True, lst_filters=[], figsize=(10,5)):
+    dtf_pps = ppscore.matrix(dtf) if len(lst_filters) == 0 else ppscore.matrix(dtf).loc[lst_filters]
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(dtf_pps, vmin=0., vmax=1., annot=annotation, fmt='.2f', cmap="YlGnBu", ax=ax, cbar=True, linewidths=0.5)
+    plt.title("predictive power score")
+    return dtf_pps
+
+
+    
+'''
+Computes correlation/dependancy and p-value (prob of happening something different than what observed in the sample)
+'''
+def test_corr(dtf, x, y, max_cat=20):
+    ## num vs num --> pearson
+    if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
+        dtf_noNan = dtf[dtf[x].notnull()]  #can't have nan
+        coeff, p = scipy.stats.pearsonr(dtf_noNan[x], dtf_noNan[y])
+        coeff, p = round(coeff, 3), round(p, 3)
+        conclusion = "Significant" if p < 0.05 else "Non-Significant"
+        print("Pearson Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
+    
+    ## cat vs cat --> cramer (chiquadro)
+    elif (utils_recognize_type(dtf, x, max_cat) == "cat") & (utils_recognize_type(dtf, y, max_cat) == "cat"):
+        cont_table = pd.crosstab(index=dtf[x], columns=dtf[y])
+        chi2_test = scipy.stats.chi2_contingency(cont_table)
+        chi2, p = chi2_test[0], chi2_test[1]
+        n = cont_table.sum().sum()
+        phi2 = chi2/n
+        r,k = cont_table.shape
+        phi2corr = max(0, phi2-((k-1)*(r-1))/(n-1))
+        rcorr = r-((r-1)**2)/(n-1)
+        kcorr = k-((k-1)**2)/(n-1)
+        coeff = np.sqrt(phi2corr/min((kcorr-1), (rcorr-1)))
+        coeff, p = round(coeff, 3), round(p, 3)
+        conclusion = "Significant" if p < 0.05 else "Non-Significant"
+        print("Cramer Correlation:", coeff, conclusion, "(p-value: "+str(p)+")")
+    
+    ## num vs cat --> 1way anova (f: the means of the groups are different)
+    else:
+        if (utils_recognize_type(dtf, x, max_cat) == "cat"):
+            cat,num = x,y
+        else:
+            cat,num = y,x
+        model = smf.ols(num+' ~ '+cat, data=dtf).fit()
+        table = sm.stats.anova_lm(model)
+        p = table["PR(>F)"][0]
+        coeff, p = None, round(p, 3)
+        conclusion = "Correlated" if p < 0.05 else "Non-Correlated"
+        print("Anova F: the variables are", conclusion, "(p-value: "+str(p)+")")
         
+    return coeff, p
+
 
 
 ###############################################################################
@@ -634,30 +676,7 @@ def data_preprocessing(dtf, y, processNas=None, processCategorical=None, split=N
 
 ###############################################################################
 #                  FEATURES SELECTION                                         #
-###############################################################################    
-'''
-Computes the correlation matrix with seaborn.
-:parameter
-    :param dtf: dataframe - input data
-    :param method: str - "pearson", "spearman" ...
-    :param annotation: logic - plot setting
-'''
-def corrmatrix_plot(dtf, method="pearson", annotation=True, figsize=(10,10)):    
-    ## factorize
-    corr_matrix = dtf.copy()
-    for col in corr_matrix.columns:
-        if corr_matrix[col].dtype == "O":
-            print("--- WARNING: Factorizing labels of", col, "---")
-            corr_matrix[col] = corr_matrix[col].factorize(sort=True)[0]
-    ## corr matrix
-    corr_matrix = corr_matrix.corr(method=method)
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.heatmap(corr_matrix, vmin=-1., vmax=1., annot=annotation, fmt='.2f', cmap="YlGnBu", ax=ax, cbar=True, linewidths=0.5)
-    plt.title(method + " correlation")
-    return corr_matrix
-
-
-
+###############################################################################
 '''
 Performs features selections: by correlation (keeping the lowest p-value) and by lasso.
 :prameter
@@ -743,77 +762,6 @@ def features_importance(X, y, X_names, model=None, task="classification", figsiz
     plt.grid(axis='both')
     plt.show()
     return dtf_importances.reset_index()
-
-
-
-'''
-Plots the binomial test of y over x.
-:parameter
-    :param dtf: dataframe - input data
-    :param x: str - column name
-    :param y: str - column name
-    :param bins: num - plot setting
-    :param figsize: tuple - plot setting
-'''
-def binomial_test(dtf, x, y, bins=10, figsize=(10,10)):
-    try:
-        if dtf[x].dtype != "O":
-            ## prepare data
-            data_nonan = dtf.dropna(subset=[x])
-            dtf['bin'] = bins
-            dtf.loc[data_nonan.index, 'bin'] = pd.qcut(data_nonan[x], bins, duplicates='drop', labels=False)
-            num_bins = len(dtf.bin.unique())-1
-            dic = {v:k for k,v in enumerate(sorted(dtf.bin.unique()))}
-            dtf["bin"] = dtf["bin"].apply(lambda x: dic[x])
-        
-            ## fig setup 
-            plt.rcParams['axes.facecolor'] = 'silver'
-            plt.figure(figsize=figsize)
-            plt.grid(True,color='white')
-            plt.suptitle(x, fontsize=20)
-        
-            ## barchart
-            h = np.histogram(dtf["bin"], bins=num_bins+1)[1]
-            hb = [(h[i]+h[i+1])/2 for i in range(len(h)-1)]
-            col_h = 1.*np.histogram(dtf["bin"], bins=num_bins+1)[0]/len(dtf)    
-            plt.bar(hb, col_h, color='deepskyblue')
-            
-            ## plot
-            y_vals = (dtf.groupby('bin')[y].sum()*1.0 / dtf.groupby('bin')[y].count())
-            p0 = (dtf[y].sum()*1.0 / dtf[y].count())
-            plt.axhline(y=(dtf[y].sum()*1.0 / dtf[y].count()), color='k', linestyle='--', zorder=1, lw=3) 
-            plt.plot(hb, y_vals, '-', c='black', zorder=5, lw=0.1)     
-            
-            ## binomial test
-            l = []
-            for b, g in dtf.groupby('bin'):
-                l.append((g[y].sum(), g[y].count()))
-            l = pd.Series(l).apply(pd.Series)
-            lower = (l[0]/l[1])-l.apply(lambda x: scipy.stats.beta.ppf(0.05/2, x[0], x[1]-x[0]+1), axis=1)
-            upper = l.apply(lambda x: scipy.stats.beta.ppf(1-0.05/2, x[0]+1, x[1]-x[0]), axis=1)-(l[0]/l[1])
-            plt.scatter(hb, y_vals, s=250, c=['red' if x-lower[i]<=p0<=x+upper[i] else 'green' for i,x in enumerate(y_vals)], zorder=10)
-            plt.errorbar(hb, y_vals, yerr=[lower,upper], c='k', zorder=15, lw=2.5)
-            
-            ## ticks
-            plt.xticks(hb, np.array(dtf.groupby('bin')[x].mean()), rotation='vertical')
-            ytstep = (dtf[y].sum()*1.0 / dtf[y].count())
-            yticks = np.arange(0,max(col_h)+0.001,ytstep)
-            plt.yticks(yticks,yticks*100)
-            ax1_max = plt.ylim()[1]
-            ax2 = plt.twinx()
-            ax2.set_ylim([0.,ax1_max])
-            ax2.set_yticks(yticks)
-            plt.yticks([min(col_h),max(col_h)])
-            plt.xlim([0.3, num_bins+0.5])
-            plt.show()
-            
-            dtf = dtf.drop("bin", axis=1)
-        else:
-            print("chosen x aint numerical")
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
 
 
 
