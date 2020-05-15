@@ -692,29 +692,30 @@ def features_selection(dtf, y, top=10, task="classification", figsize=(20,10)):
         dtf_X = dtf.drop(y, axis=1)
         feature_names = dtf_X.columns
         
-        ## Anova
+        ## p-value (one way anova F-test)
         model = feature_selection.f_classif if task=="classification" else feature_selection.f_regression
         selector = feature_selection.SelectKBest(score_func=model, k=top).fit(dtf_X.values, dtf[y].values)
-        anova_selected_features = feature_names[selector.get_support()]
+        pvalue_selected_features = feature_names[selector.get_support()]
         
-        ## Lasso regularization
-        model = linear_model.LogisticRegression(C=1, penalty="l1", solver='liblinear') if task=="classification" else linear_model.Lasso(alpha=1.0, fit_intercept=True)
+        ## regularization (classif-->lasso (l1), regr-->ridge (l2))
+        model = linear_model.LogisticRegression(C=1, penalty="l1", solver='liblinear') if task=="classification" else linear_model.Ridge(alpha=1.0, fit_intercept=True)
         selector = feature_selection.SelectFromModel(estimator=model, max_features=top).fit(dtf_X.values, dtf[y].values)
-        lasso_selected_features = feature_names[selector.get_support()]
+        regularization_selected_features = feature_names[selector.get_support()]
         
         ## plot
         dtf_features = pd.DataFrame({"features":feature_names})
-        dtf_features["anova"] = dtf_features["features"].apply(lambda x: "anova" if x in anova_selected_features else "")
-        dtf_features["num1"] = dtf_features["features"].apply(lambda x: 1 if x in anova_selected_features else 0)
-        dtf_features["lasso"] = dtf_features["features"].apply(lambda x: "lasso" if x in lasso_selected_features else "")
-        dtf_features["num2"] = dtf_features["features"].apply(lambda x: 1 if x in lasso_selected_features else 0)
-        dtf_features["method"] = dtf_features[["anova","lasso"]].apply(lambda x: (x[0]+" "+x[1]).strip(), axis=1)
+        dtf_features["p_value"] = dtf_features["features"].apply(lambda x: "p_value" if x in pvalue_selected_features else "")
+        dtf_features["num1"] = dtf_features["features"].apply(lambda x: 1 if x in pvalue_selected_features else 0)
+        dtf_features["regularization"] = dtf_features["features"].apply(lambda x: "regularization" if x in regularization_selected_features else "")
+        dtf_features["num2"] = dtf_features["features"].apply(lambda x: 1 if x in regularization_selected_features else 0)
+        dtf_features["method"] = dtf_features[["p_value","regularization"]].apply(lambda x: (x[0]+" "+x[1]).strip(), axis=1)
         dtf_features["selection"] = dtf_features["num1"] + dtf_features["num2"]
+        dtf_features["method"] = dtf_features["method"].apply(lambda x: x.split()[0]+" + "+x.split()[1] if len(x.split())==2 else x)
         fig, ax = plt.subplots(figsize=figsize)
         sns.barplot(y="features", x="selection", hue="method", data=dtf_features.sort_values("selection", ascending=False), ax=ax, dodge=False)
                
-        join_selected_features = list(set(anova_selected_features).intersection(lasso_selected_features))
-        return {"anova":anova_selected_features, "lasso":lasso_selected_features, "join":join_selected_features}
+        join_selected_features = list(set(pvalue_selected_features).intersection(regularization_selected_features))
+        return {"p_value":pvalue_selected_features, "regularization":regularization_selected_features, "join":join_selected_features}
     
     except Exception as e:
         print("--- got error ---")
@@ -736,9 +737,9 @@ def features_importance(X, y, X_names, model=None, task="classification", figsiz
     ## model
     if model is None:
         if task == "classification":
-            model = ensemble.RandomForestClassifier(n_estimators=100, criterion="entropy", random_state=0)  
+            model = ensemble.GradientBoostingClassifier()  
         elif task == "regression":
-            model = ensemble.RandomForestRegressor(n_estimators=100, criterion="mse", random_state=0)
+            model = ensemble.GradientBoostingRegressor()
     model.fit(X,y)
     print("--- model used ---")
     print(model)
@@ -794,7 +795,7 @@ def fit_classif_model(model, X_train, y_train, X_test, threshold=0.5):
 '''
 Perform k-fold validation.
 '''
-def utils_kfold_validation(model, X, y, cv=10, figsize=(10,5)):
+def utils_kfold_roc(model, X, y, cv=10, figsize=(10,5)):
     cv = model_selection.StratifiedKFold(n_splits=cv, shuffle=True)
     tprs, aucs = [], []
     mean_fpr = np.linspace(0,1,100)
@@ -853,7 +854,7 @@ def utils_threshold_selection(model, X, y, figsize=(10,5)):
 
 
 '''
-Tunes the hyperparameters of a sklearn model.
+Tunes the hyperparameters of a sklearn classification model.
 :parameter
     :param model_base: model object - model istance to tune (before fitting)
     :param param_dic: dict - dictionary of parameters to tune
@@ -892,7 +893,7 @@ def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scorin
     Kfold_model = model_selection.cross_validate(estimator=model, X=X_train, y=y_train, cv=cv, scoring=dic_scores)
     for score in dic_scores.keys():
         print(score, "mean - base model:", round(Kfold_base["test_"+score].mean(),2), " --> best model:", round(Kfold_model["test_"+score].mean()))
-    utils_kfold_validation(model, X_train, y_train, cv=cv, figsize=figsize)
+    utils_kfold_roc(model, X_train, y_train, cv=cv, figsize=figsize)
     
     ## Threshold analysis
     print("")
@@ -1062,6 +1063,56 @@ def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted.reshape(-1,1))
     return model, predicted
+
+
+
+'''
+Tunes the hyperparameters of a sklearn regression model.
+'''
+def tune_regr_model(X_train, y_train, model_base=None, param_dic=None, scoring="r2", searchtype="RandomSearch", n_iter=1000, cv=10, figsize=(10,5)):
+    model_base = ensemble.GradientBoostingRegressor() if model_base is None else model_base
+    param_dic = {'learning_rate':[0.15,0.1,0.05,0.01,0.005,0.001], 'n_estimators':[100,250,500,750,1000,1250,1500,1750], 'max_depth':[2,3,4,5,6,7]} if param_dic is None else param_dic                        
+
+    ## Search
+    print("---", searchtype, "---")
+    if searchtype == "RandomSearch":
+        random_search = model_selection.RandomizedSearchCV(model_base, param_distributions=param_dic, n_iter=n_iter, scoring=scoring).fit(X_train, y_train)
+        print("Best Model parameters:", random_search.best_params_)
+        print("Best Model "+scoring+":", round(random_search.best_score_, 2))
+        model = random_search.best_estimator_
+    
+    elif searchtype == "GridSearch":
+        grid_search = model_selection.GridSearchCV(model_base, param_dic, scoring=scoring).fit(X_train, y_train)
+        print("Best Model parameters:", grid_search.best_params_)
+        print("Best Model mean "+scoring+":", round(grid_search.best_score_, 2))
+        model = grid_search.best_estimator_
+    
+    ## K fold validation
+    print("")
+    print("--- Kfold Validation ---")
+    Kfold_base = model_selection.cross_validate(estimator=model_base, X=X_train, y=y_train, cv=cv, scoring=scoring)
+    Kfold_model = model_selection.cross_validate(estimator=model, X=X_train, y=y_train, cv=cv, scoring=scoring)
+    print(scoring, "mean - base model:", round(Kfold_base["test_score"].mean(),2), " --> best model:", round(Kfold_model["test_score"].mean()))
+    
+    scores = []
+    cv = model_selection.KFold(n_splits=cv, shuffle=True)
+    fig = plt.figure(figsize=figsize)
+    i = 1
+    for train, test in cv.split(X_train, y_train):
+        prediction = model.fit(X_train[train], y_train[train]).predict(X_train[test])
+        true = y_train[test]
+        score = metrics.r2_score(true, prediction)
+        scores.append(score)
+        plt.scatter(prediction, true, lw=2, alpha=0.3, label='Fold %d (R2 = %0.2f)' % (i,score))
+        i = i+1
+    plt.plot([min(y_train),max(y_train)], [min(y_train),max(y_train)], linestyle='--', lw=2, color='black')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('K-Fold Validation')
+    plt.legend()
+    plt.show()
+    
+    return model
 
 
 
