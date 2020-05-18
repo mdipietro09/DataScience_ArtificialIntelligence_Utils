@@ -14,7 +14,7 @@ import statsmodels.api as sm
 import ppscore
 
 ## for machine learning
-from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, discriminant_analysis, cluster, ensemble
+from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, cluster, ensemble
 from tensorflow.keras import models, layers
 
 ## for explainer
@@ -119,7 +119,7 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile
             variable = dtf[x].fillna(dtf[x].mean())
             breaks = np.quantile(variable, q=np.linspace(0, 1, 11))
             variable = variable[ (variable > breaks[quantile_breaks[0]]) & (variable < breaks[quantile_breaks[1]]) ]
-            sns.distplot(variable, hist=True, kde=True, kde_kws={"shade": True}, ax=ax[0])
+            sns.distplot(variable, hist=True, kde=True, kde_kws={"shade":True}, ax=ax[0])
             des = dtf[x].describe()
             ax[0].axvline(des["25%"], ls='--')
             ax[0].axvline(des["mean"], ls='--')
@@ -905,6 +905,37 @@ def tune_classif_model(X_train, y_train, model_base=None, param_dic=None, scorin
 
 
 '''
+Plot loss and metrics of keras training.
+'''
+def utils_plot_keras_training(training):
+    metrics = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)]
+    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    
+    ## training
+    ax[0].set(title="Training")
+    ax11 = ax[0].twinx()
+    ax[0].plot(training.history['loss'], color='black')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax11.plot(training.history[metric], label=metric)
+    ax11.set_ylabel("Score", color='steelblue')
+    ax11.legend()
+    
+    ## validation
+    ax[1].set(title="Validation")
+    ax22 = ax[1].twinx()
+    ax[1].plot(training.history['val_loss'], color='black')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax22.plot(training.history['val_'+metric], label=metric)
+    ax22.set_ylabel("Score", color="steelblue")
+    plt.show()
+
+
+
+'''
 Fits a keras artificial neural network.
 :parameter
     :param X_train: array
@@ -972,7 +1003,7 @@ Evaluates a model performance.
     :param predicted_prob: array
     :param show_thresholds: bool - if True annotates thresholds on the curves
 '''
-def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=True, figsize=(20,10)):
+def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=True, figsize=(25,5)):
     classes = np.unique(y_test)
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
     
@@ -1061,7 +1092,7 @@ def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):
     model.fit(X_train, y_train)
     predicted = model.predict(X_test)
     if scalerY is not None:
-        predicted = scalerY.inverse_transform(predicted.reshape(-1,1))
+        predicted = scalerY.inverse_transform(predicted.reshape(-1,1)).reshape(-1)
     return model, predicted
 
 
@@ -1162,7 +1193,7 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
     predicted = training.model.predict(X_test)
     if scalerY is not None:
         predicted = scalerY.inverse_transform(predicted)
-    return training.model, predicted
+    return training.model, predicted.reshape(-1)
 
 
 
@@ -1172,30 +1203,44 @@ Evaluates a model performance.
     :param y_test: array
     :param predicted: array
 '''
-def evaluate_regr_model(y_test, predicted, figsize=(15,5)):
+def evaluate_regr_model(y_test, predicted, figsize=(25,5)):
     ## Kpi
     print("R2 (explained variance):", round(metrics.r2_score(y_test, predicted), 2))
-    print("Mean Absolute Perc Error (|y-pred|/y):", round(np.mean(np.abs((y_test-predicted)/predicted)), 2))
-    print("Mean Absolute Error (|y-pred|):", "{:,.0f}".format(metrics.mean_absolute_error(y_test, predicted)))
-    print("Root Mean Squared Error (sqrt((y-pred)^2)):", "{:,.0f}".format(np.sqrt(metrics.mean_squared_error(y_test, predicted))))
-    print("Max Error:", "{:,.0f}".format(metrics.max_error(y_test, predicted)))
-
+    print("Mean Absolute Perc Error (Σ(|y-pred|/y)/n):", round(np.mean(np.abs((y_test-predicted)/predicted)), 2))
+    print("Mean Absolute Error (Σ|y-pred|/n):", "{:,.0f}".format(metrics.mean_absolute_error(y_test, predicted)))
+    print("Root Mean Squared Error (sqrt(Σ(y-pred)^2/n)):", "{:,.0f}".format(np.sqrt(metrics.mean_squared_error(y_test, predicted))))
+    
+    ## residuals
+    residuals = y_test - predicted
+    max_error = max(residuals) if abs(max(residuals)) > abs(min(residuals)) else min(residuals)
+    max_idx = list(residuals).index(max(residuals)) if abs(max(residuals)) > abs(min(residuals)) else list(residuals).index(min(residuals))
+    max_true, max_pred = y_test[max_idx], predicted[max_idx]
+    print("Max Error:", "{:,.0f}".format(max_error))
+    
     ## Plot predicted vs true
-    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
     from statsmodels.graphics.api import abline_plot
     ax[0].scatter(predicted, y_test, color="black")
     abline_plot(intercept=0, slope=1, color="red", ax=ax[0])
+    ax[0].vlines(x=max_pred, ymin=max_true, ymax=max_true-max_error, color='red', linestyle='--', alpha=0.7, label="max error")
     ax[0].grid(True)
     ax[0].set(xlabel="Predicted", ylabel="True", title="Predicted vs True")
+    ax[0].legend()
     
-    ### Plot predicted vs residuals
-    residuals = y_test.reshape(-1,1) - predicted
+    ## Plot predicted vs residuals
     ax[1].scatter(predicted, residuals, color="red")
+    ax[1].vlines(x=max_pred, ymin=0, ymax=max_error, color='black', linestyle='--', alpha=0.7, label="max error")
     ax[1].grid(True)
-    ax[1].set(xlabel="Predicted", ylabel="Residuals", title="Residuals")
-    plt.hlines(y=0, xmin=np.min(predicted), xmax=np.max(predicted))
-    plt.show()
+    ax[1].set(xlabel="Predicted", ylabel="Residuals", title="Predicted vs Residuals")
+    ax[1].hlines(y=0, xmin=np.min(predicted), xmax=np.max(predicted))
+    ax[1].legend()
     
+    ## Plot residuals distribution
+    sns.distplot(residuals, color="red", hist=True, kde=True, kde_kws={"shade":True}, ax=ax[2], label="mean = "+"{:,.0f}".format(np.mean(residuals)))
+    ax[2].grid(True)
+    ax[2].set(yticks=[], yticklabels=[], title="Residuals distribution")
+    plt.show()
+
 
 
 ###############################################################################
@@ -1241,102 +1286,8 @@ def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
                             hue='cluster', style="cluster", legend="brief").set_title('K-means clustering')
             plt.scatter(kmeans.cluster_centers_[:,x1_pos], kmeans.cluster_centers_[:,x2_pos], s=200, c='red', label='Centroids')   
         return dtf_clusters
-    
-    
-    
-'''
-Decomposes the feture matrix of train and test.
-:parameter
-    :param X_train: array
-    :param X_test: array
-    :param y_train: array or None - only for algo="LDA"
-    :param n_features: num - how many dimensions you want
-:return
-    dict with new train and test, and the model 
-'''
-def utils_dimensionality_reduction(X_train, X_test, y_train=None, n_features=2):
-    if (y_train is None) or len(np.unique(y_train)<=2):
-        print("--- unsupervised: pca ---")
-        model = decomposition.PCA(n_components=n_features)
-        X_train = model.fit_transform(X_train)
-    else:
-        print("--- supervised: lda ---")
-        model = discriminant_analysis.LinearDiscriminantAnalysis(n_components=n_features)
-        X_train = model.fit_transform(X_train, y_train)
-    X_test = model.transform(X_test)
-    return {"X":(X_train, X_test), "model":model}
 
 
-
-'''
-Plots a 2-features classification model result.
-:parameter
-    :param X_train: array
-    :param y_train: array
-    :param X_test: array
-    :param y_test: array
-    :param model: model istance (before fitting)
-'''
-def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=False, figsize=(10,10)):
-    ## n features > 2d
-    if X_train.shape[1] > 2:
-        pca = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
-        X_train, X_test = pca["X"]
-     
-    ## fit 2d model
-    print("--- fitting 2d model ---")
-    model_2d = ensemble.GradientBoostingClassifier() if model is None else model
-    model_2d.fit(X_train, y_train)
-    
-    ## plot predictions
-    print("--- plotting test set ---")
-    from matplotlib.colors import ListedColormap
-    colors = {np.unique(y_test)[0]:"black", np.unique(y_test)[1]:"green"}
-    X1, X2 = np.meshgrid(np.arange(start=X_test[:,0].min()-1, stop=X_test[:,0].max()+1, step=0.01),
-                         np.arange(start=X_test[:,1].min()-1, stop=X_test[:,1].max()+1, step=0.01))
-    fig, ax = plt.subplots(figsize=figsize)
-    Y = model_2d.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape)
-    ax.contourf(X1, X2, Y, alpha=0.5, cmap=ListedColormap(list(colors.values())))
-    ax.set(xlim=[X1.min(),X1.max()], ylim=[X2.min(),X2.max()], title="Classification regions")
-    for i in np.unique(y_test):
-        ax.scatter(X_test[y_test==i, 0], X_test[y_test==i, 1], c=colors[i], label="true "+str(i))  
-    if annotate is True:
-        for n,i in enumerate(y_test):
-            ax.annotate(n, xy=(X_test[n,0], X_test[n,1]), textcoords='offset points', ha='left', va='bottom')
-    plt.legend()
-    plt.show()
-    
-  
-    
-'''
-Plot regression plane.
-'''
-def plot3d_regr_model(X_train, y_train, X_test, y_test, scalerY=None, model=None, rotate=(0,0), figsize=(10,10)):
-    ## n features > 2d
-    if X_train.shape[1] > 2:
-        pca = utils_dimensionality_reduction(X_train, X_test, y_train, n_features=2)
-        X_train, X_test = pca["X"]
-    
-    ## fit 2d model
-    print("--- fitting 2d model ---")
-    model_2d = linear_model.LinearRegression() if model is None else model
-    model_2d.fit(X_train, y_train)
-    
-    ## plot predictions
-    print("--- plotting test set ---")
-    from mpl_toolkits.mplot3d import Axes3D
-    ax = Axes3D(plt.figure(figsize=figsize), elev=rotate[0], azim=rotate[1])
-    ax.scatter(X_test[:,0], X_test[:,1], y_test, color="black")
-    X1 = np.array([[X_test.min(), X_test.min()], [X_test.max(), X_test.max()]])
-    X2 = np.array([[X_test.min(), X_test.max()], [X_test.min(), X_test.max()]])
-    Y = model_2d.predict(np.array([[X_test.min(), X_test.min(), X_test.max(), X_test.max()], 
-                                   [X_test.min(), X_test.max(), X_test.min(), X_test.max()]]).T).reshape((2,2))
-    Y = scalerY.inverse_transform(Y) if scalerY is not None else Y
-    ax.plot_surface(X1, X2, Y, alpha=0.5)
-    ax.set(zlabel="Y", title="Regression plane", xticklabels=[], yticklabels=[])
-    plt.show()
-    
-    
 
 ###############################################################################
 #                       EXPLAINABILITY                                        #
@@ -1371,33 +1322,92 @@ def explainer(X_train, X_names, model, y_train, X_test_instance, task="classific
 
 
 
+###############################################################################
+#                     VISUALIZE MODELS                                        #
+###############################################################################
 '''
-Plot loss and metrics of keras training.
+Decomposes the feture matrix of train and test.
+:parameter
+    :param X_train: array
+    :param X_test: array
+    :param n_features: num - how many dimensions you want
+:return
+    dict with new train and test, and the model 
 '''
-def utils_plot_keras_training(training):
-    metrics = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)]
-    fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+def utils_dimensionality_reduction(X_train, X_test, n_features=2):
+    model = decomposition.PCA(n_components=n_features)
+    X_train = model.fit_transform(X_train)
+    X_test = model.transform(X_test)
+    return X_train, X_test, model
+
+
+
+'''
+Plots a 2d classification model result.
+:parameter
+    :param X_train: array
+    :param y_train: array
+    :param X_test: array
+    :param y_test: array
+    :param model: model istance (before fitting)
+'''
+def plot2d_classif_model(X_train, y_train, X_test, y_test, model=None, annotate=False, figsize=(10,5)):
+    ## n features > 2d
+    if X_train.shape[1] > 2:
+        print("--- reducing dimensions to 2 ---")
+        X_train, X_test, pca = utils_dimensionality_reduction(X_train, X_test, n_features=2)
+     
+    ## fit 2d model
+    print("--- fitting 2d model ---")
+    model_2d = ensemble.GradientBoostingClassifier() if model is None else model
+    model_2d.fit(X_train, y_train)
     
-    ## training
-    ax[0].set(title="Training")
-    ax11 = ax[0].twinx()
-    ax[0].plot(training.history['loss'], color='black')
-    ax[0].set_xlabel('Epochs')
-    ax[0].set_ylabel('Loss', color='black')
-    for metric in metrics:
-        ax11.plot(training.history[metric], label=metric)
-    ax11.set_ylabel("Score", color='steelblue')
-    ax11.legend()
+    ## plot predictions
+    print("--- plotting test set ---")
+    from matplotlib.colors import ListedColormap
+    colors = {np.unique(y_test)[0]:"black", np.unique(y_test)[1]:"green"}
+    X1, X2 = np.meshgrid(np.arange(start=X_test[:,0].min()-1, stop=X_test[:,0].max()+1, step=0.01),
+                         np.arange(start=X_test[:,1].min()-1, stop=X_test[:,1].max()+1, step=0.01))
+    fig, ax = plt.subplots(figsize=figsize)
+    Y = model_2d.predict(np.array([X1.ravel(), X2.ravel()]).T).reshape(X1.shape)
+    ax.contourf(X1, X2, Y, alpha=0.5, cmap=ListedColormap(list(colors.values())))
+    ax.set(xlim=[X1.min(),X1.max()], ylim=[X2.min(),X2.max()], title="Classification regions")
+    for i in np.unique(y_test):
+        ax.scatter(X_test[y_test==i, 0], X_test[y_test==i, 1], c=colors[i], label="true "+str(i))  
+    if annotate is True:
+        for n,i in enumerate(y_test):
+            ax.annotate(n, xy=(X_test[n,0], X_test[n,1]), textcoords='offset points', ha='left', va='bottom')
+    plt.legend()
+    plt.show()
     
-    ## validation
-    ax[1].set(title="Validation")
-    ax22 = ax[1].twinx()
-    ax[1].plot(training.history['val_loss'], color='black')
-    ax[1].set_xlabel('Epochs')
-    ax[1].set_ylabel('Loss', color='black')
-    for metric in metrics:
-        ax22.plot(training.history['val_'+metric], label=metric)
-    ax22.set_ylabel("Score", color="steelblue")
+
+    
+'''
+Plot 3d regression plane.
+'''
+def plot3d_regr_model(X_train, y_train, X_test, y_test, scalerY=None, model=None, rotate=(0,0), figsize=(10,5)):
+    ## n features > 2d
+    if X_train.shape[1] > 2:
+        print("--- reducing dimensions to 3 ---")
+        X_train, X_test, pca  = utils_dimensionality_reduction(X_train, X_test, n_features=2)
+    
+    ## fit 2d model
+    print("--- fitting 2d model ---")
+    model_2d = linear_model.LinearRegression() if model is None else model
+    model_2d.fit(X_train, y_train)
+    
+    ## plot predictions
+    print("--- plotting test set ---")
+    from mpl_toolkits.mplot3d import Axes3D
+    ax = Axes3D(plt.figure(figsize=figsize), elev=rotate[0], azim=rotate[1])
+    ax.scatter(X_test[:,0], X_test[:,1], y_test, color="black")
+    X1 = np.array([[X_test.min(), X_test.min()], [X_test.max(), X_test.max()]])
+    X2 = np.array([[X_test.min(), X_test.max()], [X_test.min(), X_test.max()]])
+    Y = model_2d.predict(np.array([[X_test.min(), X_test.min(), X_test.max(), X_test.max()], 
+                                   [X_test.min(), X_test.max(), X_test.min(), X_test.max()]]).T).reshape((2,2))
+    Y = scalerY.inverse_transform(Y) if scalerY is not None else Y
+    ax.plot_surface(X1, X2, Y, alpha=0.5)
+    ax.set(zlabel="Y", title="Regression plane", xticklabels=[], yticklabels=[])
     plt.show()
 
 
