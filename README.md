@@ -8,22 +8,31 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 ### 1. Classic Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
-	* Analysis <img src="_docs/classif_analysis.PNG" width="600" height="200">
+	* Analysis 
+
+		<img src="_docs/classif_analysis.PNG" width="600" height="200">
 	
-	* Model <img src="_docs/classif_model.PNG" width="300" height="200">
+	* Model 
+
+		<img src="_docs/classif_model.PNG" width="300" height="200">
 	
-	* Evaluation <img src="_docs/classif_metrics.PNG" width="600" height="200">
+	* Evaluation 
+
+		<img src="_docs/classif_metrics.PNG" width="600" height="200">
 
 
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
-	<img src="_docs/regr_analysis.PNG" width="400" height="150">
+		
+		<img src="_docs/regr_analysis.PNG" width="400" height="150">
 	
 	* Model
-	<img src="_docs/regr_model.PNG" width="400" height="200">
+		
+		<img src="_docs/regr_model.PNG" width="400" height="200">
 	
 	* Evaluation
-	<img src="_docs/regr_metrics.PNG" width="600" height="200">
+	
+		<img src="_docs/regr_metrics.PNG" width="600" height="200">
 
 ------
 
@@ -52,12 +61,15 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 ### 3. Natural Language Processing:
 - <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_natural_language_processing/example_text_classification.ipynb)**</ins>
 	* Analysis
+		
 		<img src="_docs/nlp_analysis.PNG" width="400" height="200">
 
 	* Model
+		
 		<img src="_docs/ann_vis.PNG" width="400" height="300">
 
 	* Evaluation
+		
 		<img src="_docs/nlp_metrics.PNG" width="600" height="200">
 
 ------
