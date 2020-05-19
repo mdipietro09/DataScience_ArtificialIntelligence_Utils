@@ -10,7 +10,7 @@ Some of these examples are explained in articles on Towards Data Science and Ana
 ###### 1. Classic Machine Learning:
 - Regression on structured data
 	* Analysis
-		![Alt](_docs/classif_analysis.PNG)
+		![Alt](_docs/classif_analysis.PNG =100x20)
 	* Model
 		![Alt](_docs/classif_model.PNG)
 	* Evaluation
