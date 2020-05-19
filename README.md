@@ -1,58 +1,75 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
-In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.
-Some of these examples are explained in articles on Towards Data Science and Analytics Vidhya, links are in the notebooks or you can check [here](https://medium.com/@m.dipietro09).
+In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
+Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya*, 
+links are in the notebooks or you can check [here](https://medium.com/@m.dipietro09).
 
 
 
-### Repo structure:
-
-###### 1. Classic Machine Learning:
-- Regression on structured data
+### 1. Classic Machine Learning:
+- <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
 	* Analysis
-		![Alt]<img src="_docs/classif_analysis.PNG" width="200">
+		<img src="_docs/classif_analysis.PNG" width="600" height="200">
+	
 	* Model
-		![Alt](_docs/classif_model.PNG)
+		<img src="_docs/classif_model.PNG" width="300" height="200">
+	
 	* Evaluation
-		![Alt](_docs/classif_metrics.PNG)
+		<img src="_docs/classif_metrics.PNG" width="600" height="200">
 
-- Classification on structured data
+
+- <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
-		![Alt](_docs/regr_analysis.PNG)
+		<img src="_docs/regr_analysis.PNG" width="400" height="150">
+	
 	* Model
-		![Alt](_docs/regr_model.PNG)
+		<img src="_docs/regr_model.PNG" width="400" height="200">
+	
 	* Evaluation
-		![Alt](_docs/regr_metrics.PNG)
+		<img src="_docs/regr_metrics.PNG" width="600" height="200">
 
+------
 
-###### 2. Time Series:
-- Forecsting
+### 2. Time Series:
+- <ins>**[Forecsting](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_forecast.ipynb)**</ins>
 	* Analysis
-		![Alt](_docs/ts_analysis.PNG)
+		<img src="_docs/ts_analysis.PNG" width="400" height="150">
+	
 	* Model
-		![Alt](_docs/ts_model.PNG)
+		<img src="_docs/ts_model.PNG" width="400" height="150">
+	
 	* Evaluation
-		![Alt](_docs/ts_metrics.PNG)
-
-- Parametric fit
-		![Alt](_docs/ts_param.PNG)
+		<img src="_docs/ts_metrics.PNG" width="400" height="150">
 
 
-###### 3. Natural Language Processing:
-- Text classification
-	* Analysis
-		![Alt](_docs/nlp_analysis.PNG)
+- <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
 	* Model
-		![Alt](_docs/ann_vis.PNG)
-	* Evaluation
-		![Alt](_docs/nlp_metrics.PNG)
 
+		<img src="_docs/ts_param.PNG" width="300" height="150">
 
-###### 4. Computer Vision:
-- Image detection and classification
+------
+
+### 3. Natural Language Processing:
+- <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_natural_language_processing/example_text_classification.ipynb)**</ins>
 	* Analysis
+		<img src="_docs/nlp_analysis.PNG" width="400" height="200">
 
+	* Model
+		<img src="_docs/ann_vis.PNG" width="400" height="300">
 
-###### 5. Reinforcement Learning:
-- Artificial Intelligence agent
+	* Evaluation
+		<img src="_docs/nlp_metrics.PNG" width="600" height="200">
+
+------
+
+### 4. Computer Vision:
+- <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_computer_vision/example_detection_and_classification.ipynb)**</ins>
+	* Object detection
+
+		<img src="_docs/cv_detect.PNG" width="600" height="100">
+
+------
+
+### 5. Reinforcement Learning:
+- <ins>**[Artificial Intelligence agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_artificial_intelligence.ipynb)**</ins>
 	* work in progress
