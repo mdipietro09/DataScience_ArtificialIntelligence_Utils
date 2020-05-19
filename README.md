@@ -8,37 +8,37 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 ### 1. Classic Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
-	* Analysis
-		<img src="_docs/classif_analysis.PNG" width="600" height="200">
+	* Analysis <img src="_docs/classif_analysis.PNG" width="600" height="200">
 	
-	* Model
-		<img src="_docs/classif_model.PNG" width="300" height="200">
+	* Model <img src="_docs/classif_model.PNG" width="300" height="200">
 	
-	* Evaluation
-		<img src="_docs/classif_metrics.PNG" width="600" height="200">
+	* Evaluation <img src="_docs/classif_metrics.PNG" width="600" height="200">
 
 
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
-		<img src="_docs/regr_analysis.PNG" width="400" height="150">
+	<img src="_docs/regr_analysis.PNG" width="400" height="150">
 	
 	* Model
-		<img src="_docs/regr_model.PNG" width="400" height="200">
+	<img src="_docs/regr_model.PNG" width="400" height="200">
 	
 	* Evaluation
-		<img src="_docs/regr_metrics.PNG" width="600" height="200">
+	<img src="_docs/regr_metrics.PNG" width="600" height="200">
 
 ------
 
 ### 2. Time Series:
 - <ins>**[Forecsting](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_forecast.ipynb)**</ins>
 	* Analysis
+	
 		<img src="_docs/ts_analysis.PNG" width="400" height="150">
 	
 	* Model
+		
 		<img src="_docs/ts_model.PNG" width="400" height="150">
 	
 	* Evaluation
+		
 		<img src="_docs/ts_metrics.PNG" width="400" height="150">
 
 
