@@ -1,12 +1,18 @@
-pystan==2.19.1.1
-keras==2.3.1
-matplotlib==3.1.2
+## data
 numpy==1.16.4
 pandas==0.25.1
 xlrd==1.2.0
-scikit-learn==0.22
+## plot
+matplotlib==3.1.2
+## statistics
 statsmodels==0.10.1
+## machine learning
+scikit-learn==0.22
+## deep learning
 tensorflow==1.13.2
+## econometrics
 pmdarima==1.5.2
-fbprophet==0.5
 arch==4.13
+## prophet
+pystan==2.19.1.1
+fbprophet==0.5

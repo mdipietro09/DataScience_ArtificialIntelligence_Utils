@@ -1,11 +1,16 @@
-keras==2.3.1
-lime==0.1.1.37
-matplotlib==3.1.2
+## data
 numpy==1.16.4
 pandas==0.25.1
 xlrd==1.2.0
-scikit-learn==0.22
-scipy==1.3.2
+## plot
+matplotlib==3.1.2
 seaborn==0.9.0
+## statistics
+scipy==1.3.2
 statsmodels==0.10.1
+## machine learning
+scikit-learn==0.22
+## deep learning
 tensorflow==1.13.2
+## explainer
+lime==0.1.1.37

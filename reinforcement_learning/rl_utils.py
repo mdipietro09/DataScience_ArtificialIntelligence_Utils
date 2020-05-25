@@ -12,7 +12,7 @@ import random
 import matplotlib.animation as anm
 #conda install -c conda-forge ffmpeg
 
-## for agents
+## for deep learning
 from tensorflow.keras import models, layers, optimizers
 import collections
 #from PIL import Image

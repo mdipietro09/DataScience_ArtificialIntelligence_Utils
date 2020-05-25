@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from imageai import Detection
 from imageai.Detection.Custom import DetectionModelTrainer, CustomObjectDetection
 
-## for machine learning
+## for deep learning
 from tensorflow.keras import models, layers, applications
 
 ## for ocr
@@ -39,7 +39,10 @@ def utils_plot_img(img, mask=None, rect=None, title=None, figsize=(5,3)):
         plot_img = cv2.rectangle(plot_img, rect[0], rect[1], (255,0,0), 4)
     fig, ax = plt.subplots(figsize=figsize)
     fig.suptitle(title, fontsize=20)
-    plt.imshow(plot_img)
+    if len(img.shape) > 2:
+        plt.imshow(plot_img)
+    else:
+        plt.imshow(plot_img, cmap=plt.cm.binary)
 
 
 

@@ -23,6 +23,8 @@ import collections
 
 ## for machine learning
 from sklearn import preprocessing, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline, decomposition
+
+## for deep learning
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 
 ## for W2V

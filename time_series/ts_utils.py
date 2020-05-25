@@ -17,7 +17,7 @@ import pmdarima
 import statsmodels.tsa.api as smt
 import arch
 
-## for machine learning
+## for deep learning
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 
 ## for prophet

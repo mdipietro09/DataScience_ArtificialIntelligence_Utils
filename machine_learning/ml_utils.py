@@ -1,7 +1,7 @@
 
 ## for data
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 ## for plotting
 import matplotlib.pyplot as plt
@@ -15,6 +15,8 @@ import ppscore
 
 ## for machine learning
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, cluster, ensemble
+
+## for deep learning
 from tensorflow.keras import models, layers
 
 ## for explainer
@@ -968,19 +970,15 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
             recall = Recall(y, y_hat)
             return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
-        ### initialize
-        model = models.Sequential()
+        ### build ann
         n_features = X_train.shape[1]
         n_neurons = int(round((n_features + 1)/2))
-        ### layer 1
-        model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'))
-        model.add(layers.Dropout(rate=0.2))
-        ### layer 2
-        model.add(layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'))
-        model.add(layers.Dropout(rate=0.2))
-        ### layer output
-        model.add(layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
-        ### compile
+        model = models.Sequential([
+            layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'),
+            layers.Dropout(rate=0.2),
+            layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'),
+            layers.Dropout(rate=0.2),
+            layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid') ])
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
     
     ## train
@@ -1169,19 +1167,15 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
             ss_tot = K.sum(K.square(y - K.mean(y))) 
             return ( 1 - ss_res/(ss_tot + K.epsilon()) )
 
-        ### initialize
-        model = models.Sequential()
+        ### build ann
         n_features = X_train.shape[1]
         n_neurons = int(round((n_features + 1)/2))
-        ### layer 1
-        model.add(layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'))
-        model.add(layers.Dropout(rate=0.2))
-        ### layer 2
-        model.add(layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'))
-        model.add(layers.Dropout(rate=0.2))
-        ### layer output
-        model.add(layers.Dense(units=1, kernel_initializer='normal', activation='linear'))
-        ### compile
+        model = models.Sequential([
+            layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'),
+            layers.Dropout(rate=0.2),
+            layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'),
+            layers.Dropout(rate=0.2),
+            layers.Dense(units=1, kernel_initializer='normal', activation='linear') ])
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=[R2])
 
     ## train
@@ -1463,17 +1457,17 @@ def visualize_ann(model, titles=False, figsize=(10,8)):
                 plt.text(x=left, y=top, fontsize=10, s="Input layer")
                 plt.text(x=left, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
                 plt.text(x=left, y=top-2*p, fontsize=8,
-                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+                         s="inputs:"+str(layer_infos[i][1].shape[0]))
             elif i == len(layer_sizes)-1:
                 plt.text(x=right, y=top, fontsize=10, s="Output layer")
                 plt.text(x=right, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
                 plt.text(x=right, y=top-2*p, fontsize=8,
-                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+                         s="output:"+str(layer_infos[i][1].shape[1])+" comb + bias")
             else:
                 plt.text(x=left+i*x_space, y=top, fontsize=10, s="Hidden layer "+str(i))
                 plt.text(x=left+i*x_space, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
                 plt.text(x=left+i*x_space, y=top-2*p, fontsize=8,
-                         s="params:"+str(layer_infos[i][1].shape)+" + bias:"+str(layer_infos[i][2].shape))
+                         s="neurons:"+str(layer_infos[i][1].shape[0])+" comb + bias")
         
         ### circles
         for m in range(n):
