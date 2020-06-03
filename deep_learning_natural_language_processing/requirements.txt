@@ -11,8 +11,8 @@ scikit-learn==0.22
 tensorflow==1.13.2
 ## nlp
 nltk==3.4.5
-textblob==0.15.3
 spacy==2.2.3
 gensim==3.8.1
 wordcloud==1.6.0
 langdetect==1.0.7
+textblob==0.15.3

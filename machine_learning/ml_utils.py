@@ -15,12 +15,14 @@ import ppscore
 
 ## for machine learning
 from sklearn import preprocessing, impute, utils, linear_model, feature_selection, model_selection, metrics, decomposition, cluster, ensemble
+import imblearn
 
 ## for deep learning
 from tensorflow.keras import models, layers
 
 ## for explainer
 from lime import lime_tabular
+import shap
 
 
 
@@ -93,7 +95,7 @@ Plots the frequency distribution of a dtf column.
     :param box_logscale: logic
     :param figsize: tuple - plot settings
 '''
-def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile_breaks=(0,10), box_logscale=False, figsize=(20,10)):
+def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile_breaks=(0,10), box_logscale=False, figsize=(10,5)):
     try:
         ## cat --> freq
         if utils_recognize_type(dtf, x, max_cat) == "cat":   
@@ -156,7 +158,7 @@ Plots a bivariate analysis.
     :param y: str - column
     :param max_cat: num - max number of uniques to consider a numerical variable as categorical
 '''
-def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
+def bivariate_plot(dtf, x, y, max_cat=20, figsize=(10,5)):
     try:
         ## num vs num --> scatter with density + stacked
         if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
@@ -240,7 +242,7 @@ def bivariate_plot(dtf, x, y, max_cat=20, figsize=(20,10)):
 '''
 Plots a bivariate analysis using Nan and not-Nan as categories.
 '''
-def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(20,10)):
+def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(10,5)):
     dtf_NA = dtf[[na_x, y]]
     dtf_NA[na_x] = dtf[na_x].apply(lambda x: "Value" if not pd.isna(x) else "NA")
     bivariate_plot(dtf_NA, x=na_x, y=y, max_cat=max_cat, figsize=figsize)
@@ -250,20 +252,19 @@ def nan_analysis(dtf, na_x, y, max_cat=20, figsize=(20,10)):
 '''
 Plots a bivariate analysis with time variable.
 '''
-def ts_analysis(dtf, x, y, max_cat=20, figsize=(20,10)):
+def ts_analysis(dtf, x, y, max_cat=20, figsize=(10,5)):
     if utils_recognize_type(dtf, y, max_cat) == "cat":
         dtf_tmp = dtf.groupby(x)[y].sum()       
     else:
         dtf_tmp = dtf.groupby(x)[y].median()
-    ax = dtf_tmp.plot(title=y+" by "+x)
-    ax.grid(True)
-      
+    dtf_tmp.plot(title=y+" by "+x, figsize=figsize, grid=True)
+
 
   
 '''
 plots multivariate analysis.
 '''
-def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
+def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(10,5)):
     ## Y cat
     if utils_recognize_type(dtf, y, max_cat) == "cat":
         
@@ -275,7 +276,7 @@ def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(20,10)):
     
         ### num vs num --> scatter with hue
         elif (utils_recognize_type(dtf, x1, max_cat) == "num") & (utils_recognize_type(dtf, x2, max_cat) == "num"):
-            sns.lmplot(x=x1, y=x2, data=dtf, hue=y, height=int((figsize[0]+figsize[1])/2) )
+            sns.lmplot(x=x1, y=x2, data=dtf, hue=y, height=figsize[1])
         
         ### num vs cat --> boxplot with hue
         else:
@@ -453,53 +454,73 @@ def dtf_partitioning(dtf, y, test_size=0.3, shuffle=False):
 
 
 '''
-Rebalances a dataset.
+Rebalances a dataset with up-sampling and down-sampling.
 :parameter
     :param dtf: dataframe - feature matrix dtf
-    :param y: str - name of the dependent variable 
-    :param balance: str or None - "up", "down"
-    :param replace: logic - resampling with replacement
+    :param y: str - column to use as target 
+    :param balance: str - "up", "down", if None just prints some stats
+    :param method: str - "random" for sklearn or "knn" for imblearn
     :param size: num - 1 for same size of the other class, 0.5 for half of the other class
 :return
     rebalanced dtf
 '''
-def rebalance(dtf, y, balance=None,  replace=True, size=1):
-    try:
-        ## check
-        check = dtf[y].value_counts().to_frame()
-        check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
-        print(check)
-        print("tot:", check[y].sum())
+def rebalance(dtf, y, balance=None,  method="random", replace=True, size=1):
+    ## check
+    print("--- situation ---")
+    check = dtf[y].value_counts().to_frame()
+    check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
+    print(check)
+    print("tot:", check[y].sum())
+
+    ## sklearn
+    if balance is not None and method == "random":
+        ### set the major and minor class
         major = check.index[0]
         minor = check.index[1]
         dtf_major = dtf[dtf[y]==major]
         dtf_minor = dtf[dtf[y]==minor]
-        
-        ## up-sampling
+
+        ### up-sampling
         if balance == "up":
-            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_major), 0)) )
+            print("--- upsampling ---")
+            print("   randomly replicate observations from the minority class (Overfitting risk)")
+            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123, n_samples=int(size*len(dtf_major)))
             dtf_balanced = pd.concat([dtf_major, dtf_minor])
-        ## down-sampling
+
+        ### down-sampling
         elif balance == "down":
-            dtf_major = utils.resample(dtf_major, replace=replace, random_state=123,
-                                       n_samples=int(round(size*len(dtf_minor), 0)) )
+            print("--- downsampling ---")
+            print("   randomly remove observations of the majority class (Underfitting risk)")
+            dtf_minor = utils.resample(dtf_minor, replace=replace, random_state=123, n_samples=int(size*len(dtf_major)))
             dtf_balanced = pd.concat([dtf_major, dtf_minor])
-        else:
-            print("select up or down resampling")
-            return dtf
+
+    ## imblearn
+    if balance is not None and method == "knn":
+        ### up-sampling
+        if balance == "up":
+            print("--- upsampling ---")
+            print("   create synthetic observations from the minority class (Distortion risk)")
+            smote = imblearn.over_sampling.SMOTE(random_state=123)
+            dtf_balanced, y_values = smote.fit_sample(dtf.drop(y,axis=1), y=dtf[y])
+            dtf_balanced[y] = y_values
+       
+        ### down-sampling
+        elif balance == "down":
+            print("--- downsampling ---")
+            print("   select observations that don't affect performance (Underfitting risk)")
+            nn = imblearn.under_sampling.CondensedNearestNeighbour(random_state=123)
+            dtf_balanced, y_values = nn.fit_sample(dtf.drop(y,axis=1), y=dtf[y])
+            dtf_balanced[y] = y_values
         
-        print("")
+    ## check rebalance
+    if balance is not None:
+        print("--- new situation ---")
         check = dtf_balanced[y].value_counts().to_frame()
         check["%"] = (check[y] / check[y].sum() *100).round(1).astype(str) + '%'
         print(check)
         print("tot:", check[y].sum())
         return dtf_balanced
     
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
-
 
 
 '''
@@ -1060,7 +1081,7 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=Tr
         for i,t in enumerate(thresholds):
             t = np.round(t,1)
             if t not in thres_in_plot:
-                ax[2].annotate(np.round(t,1), xy=(recalls[i],precisions[i]), xytext=(recalls[i],precisions[i]), textcoords='offset points', ha='left', va='bottom')
+                ax[2].annotate(np.round(t,1), xy=(recalls[i],precisions[i]), xytext=(recalls[i],precisions[i]), textcoords='offset points', ha='right', va='bottom')
                 thres_in_plot.append(t)
             else:
                 next
@@ -1287,7 +1308,42 @@ def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
 #                       EXPLAINABILITY                                        #
 ###############################################################################
 '''
-Uses lime to build an a explainer.
+Use shap to build an a explainer.
+:parameter
+    :param model: model instance (after fitting)
+    :param X_names: list
+    :param X_test_instance: array of size n x 1 (n,)
+    :param X_train: array - if None the model is simple machine learning, if not None then it's a deep learning model
+    :param task: string - "classification", "regression"
+    :param top: num - top features to display
+:return
+    dtf with explanations
+'''
+def explainer_shap(model, X_names, X_test_instance, X_train=None, task="classification", top=10):
+    ## create explainer
+    ### machine learning
+    if X_train is None:
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_test_instance)
+    ### deep learning
+    else:
+        explainer = shap.DeepExplainer(model, data=X_train)
+        shap_values = explainer.shap_values(X_test_instance.reshape(1,-1))[0].reshape(-1)
+
+    ## plot
+    ### classification
+    if task == "classification":
+        shap.decision_plot(explainer.expected_value, shap_values, link='logit', feature_order='importance',
+                           features=X_test_instance, feature_names=X_names, feature_display_range=slice(-1,-top-1,-1))
+    ### regression
+    else:
+        shap.waterfall_plot(explainer.expected_value[0], shap_values, 
+                            features=X_test_instance, feature_names=X_names, max_display=top)
+
+
+
+'''
+Use lime to build an a explainer.
 :parameter
     :param X_train: array
     :param X_names: list
@@ -1299,7 +1355,7 @@ Uses lime to build an a explainer.
 :return
     dtf with explanations
 '''
-def explainer(X_train, X_names, model, y_train, X_test_instance, task="classification", top=10):
+def explainer_lime(X_train, X_names, model, y_train, X_test_instance, task="classification", top=10):
     if task == "classification":
         explainer = lime_tabular.LimeTabularExplainer(training_data=X_train, feature_names=X_names, class_names=np.unique(y_train), mode=task)
         explained = explainer.explain_instance(X_test_instance, model.predict_proba, num_features=top)
