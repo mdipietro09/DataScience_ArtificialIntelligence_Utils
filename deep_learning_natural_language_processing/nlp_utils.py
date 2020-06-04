@@ -28,7 +28,7 @@ from sklearn import preprocessing, model_selection, feature_extraction, feature_
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 
 ## for explainer
-from lime import lime_tabular
+from lime import lime_text
 import shap
 
 ## for W2V
@@ -586,7 +586,7 @@ def fit_bow(corpus, vectorizer=None, vocabulary=None):
     ## vocabulary
     print("--- creating vocabulary ---") if vocabulary is None else print("--- used vocabulary ---")
     dic_vocabulary = vectorizer.vocabulary_   #{word:idx for idx, word in enumerate(vectorizer.get_feature_names())}
-    print("len:", len(dic_vocabulary))
+    print(len(dic_vocabulary), "words")
     
     ## text2tokens
     print("--- tokenization ---")
@@ -596,7 +596,7 @@ def fit_bow(corpus, vectorizer=None, vocabulary=None):
     for text in corpus:
         lst_tokens = [dic_vocabulary[word] for word in tokenizer(preprocessor(text)) if word in dic_vocabulary]
         lst_text2tokens.append(lst_tokens)
-    print("len:", len(lst_text2tokens))
+    print(len(lst_text2tokens), "texts")
     return {"X":X, "lst_text2tokens":lst_text2tokens, "vectorizer":vectorizer, "dic_vocabulary":dic_vocabulary}
 
 
@@ -624,11 +624,15 @@ def features_selection(X, y, X_names, top=None, print_top=10):
         dtf_features = dtf_features.groupby('y')["y","feature","score"].head(top)
     
     ## print
+    print("features selection: from", "{:,.0f}".format(len(X_names)), 
+          "to", "{:,.0f}".format(len(dtf_selection["feature"].unique())))
+    print(" ")
     for cat in np.unique(y):
         print("# {}:".format(cat))
-        print("  . {}".format('\n  . '.join(dtf_features[dtf_features["y"]==cat]["feature"].values[:print_top])))
+        print("  . selected features:", len(dtf_features[dtf_features["y"]==cat]))
+        print("  . top features:", ", ".join(dtf_features[dtf_features["y"]==cat]["feature"].values[:print_top]))
         print(" ")
-    return dtf_features
+    return dtf_selection["feature"].unique().tolist(), dtf_features
 
 
 
@@ -638,12 +642,13 @@ Transform a sparse matrix into a dtf with selected features only.
     :param X: array - like sparse matrix or dtf.values
     :param X: dic_vocabulary - {"word":idx}
     :param X_names: list of words - like vetcorizer.get_feature_names()
+    :param prefix: str - ex. "x_" -> x_word1, x_word2, ..
 '''
-def sparse2dtf(X, dic_vocabulary, X_names):
+def sparse2dtf(X, dic_vocabulary, X_names, prefix=""):
     dtf_X = pd.DataFrame()
     for word in X_names:
         idx = dic_vocabulary[word]
-        dtf_X["X_"+word] = np.reshape(X[:,idx].toarray(), newshape=(-1))
+        dtf_X[prefix+word] = np.reshape(X[:,idx].toarray(), newshape=(-1))
     return dtf_X
 
 
@@ -651,29 +656,45 @@ def sparse2dtf(X, dic_vocabulary, X_names):
 '''
 Fits a sklearn classification model.
 :parameter
-    :param classifier: model object - model to fit (before fitting)
-    :param X_train: array of text
+    :param X_train: feature matrix
     :param y_train: array of classes
-    :param X_test: array of text
-    :param vectorizer: vectorizer object - if None Tfidf is used
+    :param X_test: raw text
+    :param vectorizer: ftted vectorizer object
     :param classifier: model object - if None MultinomialNB is used
 :return
     fitted model and predictions
 '''
-def ml_text_classif(X_train, y_train, X_test, preprocessing=False, vectorizer=None, classifier=None): 
-    ## model
-    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,2)) if vectorizer is None else vectorizer
+def ml_text_classif(X_train, y_train, X_test, vectorizer, classifier=None): 
+    ## model pipeline
     classifier = naive_bayes.MultinomialNB() if classifier is None else classifier
-    model = pipeline.Pipeline([("vectorizer",vectorizer), ("model",classifier)]) if preprocessing == True else classifier
+    model = pipeline.Pipeline([("vectorizer",vectorizer), ("classifier",classifier)])
     
     ## train
-    model.fit(X_train, y_train)
+    model["classifier"].fit(X_train, y_train)
     
     ## test
     predicted = model.predict(X_test)
     predicted_prob = model.predict_proba(X_test)
-    
     return model, predicted_prob, predicted
+
+
+
+'''
+Use lime to build an a explainer.
+:parameter
+    :param model: pipeline with vectorizer and classifier
+    :param Y_train: array
+    :param txt_instance: string - raw text
+    :param top: num - top features to display
+:return
+    dtf with explanations
+'''
+def explainer_lime(model, y_train, txt_instance, top=10):
+    explainer = lime_text.LimeTextExplainer(class_names=np.unique(y_train))
+    explained = explainer.explain_instance(txt_instance, model.predict_proba, num_features=top)
+    dtf_explainer = pd.DataFrame(explained.as_list(), columns=['feature','effect'])
+    explained.show_in_notebook(text=txt_instance, predict_proba=False)
+    return dtf_explainer
 
 
 
