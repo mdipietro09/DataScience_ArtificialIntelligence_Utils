@@ -20,6 +20,9 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 		<img src="_docs/classif_metrics.PNG" width="600" height="200">
 
+	* Explainability 
+
+		<img src="_docs/classif_explain.PNG" width="300" height="200">
 
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
@@ -33,6 +36,10 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 	* Evaluation
 	
 		<img src="_docs/regr_metrics.PNG" width="600" height="200">
+
+	* Explainability 
+
+		<img src="_docs/regr_explain.PNG" width="300" height="200">
 
 ------
 
@@ -71,6 +78,10 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 	* Evaluation
 		
 		<img src="_docs/nlp_metrics.PNG" width="600" height="200">
+
+	* Explainability 
+
+		<img src="_docs/nlp_explain.PNG" width="300" height="200">
 
 ------
 
