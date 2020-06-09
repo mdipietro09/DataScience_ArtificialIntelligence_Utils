@@ -26,6 +26,7 @@ from sklearn import preprocessing, model_selection, feature_extraction, feature_
 
 ## for deep learning
 from tensorflow.keras import models, layers, preprocessing as kprocessing
+from tensorflow.keras import backend as K
 
 ## for explainer
 from lime import lime_text
@@ -259,7 +260,28 @@ def plot_wordcloud(corpus, max_words=150, max_font_size=35, figsize=(10,10)):
     plt.axis('off')
     plt.imshow(wc, cmap=None)
     plt.show()
-    
+
+
+
+'''
+Adds a column with word frequency.
+:parameter
+    :param dtf: dataframe - dtf with a text column
+    :param column: string - name of column containing text
+    :param lst_words: list - ["donald trump", "china", ...]
+    :param freq: str - "count" or "tfidf"
+:return
+    dtf: input dataframe with new columns
+'''
+def add_word_freq(dtf, column, lst_words, freq="count"):
+    lst_grams = [len(word.split(" ")) for word in lst_words]
+    if freq == "tfidf":
+        vectorizer = feature_extraction.text.TfidfVectorizer(vocabulary=lst_words, ngram_range=(min(lst_grams),max(lst_grams)))
+    else:
+        vectorizer = feature_extraction.text.CountVectorizer(vocabulary=lst_words, ngram_range=(min(lst_grams),max(lst_grams)))
+    dtf_X = pd.DataFrame(vectorizer.fit_transform(dtf[column]).todense(), columns=lst_words)
+    return pd.concat([dtf, dtf_X.set_index(dtf.index)], axis=1)
+
 
         
 ###############################################################################
@@ -505,7 +527,7 @@ def dtf_partitioning(dtf, y, test_size=0.3, shuffle=False):
 '''
 Transform an array of strings into an array of int.
 '''
-def encode_variable(dtf, column):
+def add_encode_variable(dtf, column):
     dtf[column+"_id"] = dtf[column].factorize(sort=True)[0]
     dic_class_mapping = dict( dtf[[column+"_id",column]].drop_duplicates().sort_values(column+"_id").values )
     return dtf, dic_class_mapping
@@ -567,11 +589,10 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(15,5)):
 Vectorize corpus with Bag-of-Words (classic Count or Tf-Idf variant), plots the most frequent words.
 :parameter
     :param corpus: list - dtf["text"]
-    :param vectorizer: sklearn vectorizer object
+    :param vectorizer: sklearn vectorizer object, like Count or Tf-Idf
     :param vocabulary: list of words or dict, if None it creates from scratch, else it searches the words into corpus
-    :param plot_top: num - plot the top frequent words, if None it doesn't plot
 :return
-    sparse matrix, list of text tokenized, vectorizer, dic_vocabulary
+    sparse matrix, list of text tokenized, vectorizer, dic_vocabulary, X_names
 '''
 def fit_bow(corpus, vectorizer=None, vocabulary=None):
     ## vectorizer
@@ -597,7 +618,7 @@ def fit_bow(corpus, vectorizer=None, vocabulary=None):
         lst_tokens = [dic_vocabulary[word] for word in tokenizer(preprocessor(text)) if word in dic_vocabulary]
         lst_text2tokens.append(lst_tokens)
     print(len(lst_text2tokens), "texts")
-    return {"X":X, "lst_text2tokens":lst_text2tokens, "vectorizer":vectorizer, "dic_vocabulary":dic_vocabulary}
+    return {"X":X, "lst_text2tokens":lst_text2tokens, "vectorizer":vectorizer, "dic_vocabulary":dic_vocabulary, "X_names":vectorizer.get_feature_names()}
 
 
 
@@ -625,14 +646,14 @@ def features_selection(X, y, X_names, top=None, print_top=10):
     
     ## print
     print("features selection: from", "{:,.0f}".format(len(X_names)), 
-          "to", "{:,.0f}".format(len(dtf_selection["feature"].unique())))
+          "to", "{:,.0f}".format(len(dtf_features["feature"].unique())))
     print(" ")
     for cat in np.unique(y):
         print("# {}:".format(cat))
         print("  . selected features:", len(dtf_features[dtf_features["y"]==cat]))
         print("  . top features:", ", ".join(dtf_features[dtf_features["y"]==cat]["feature"].values[:print_top]))
         print(" ")
-    return dtf_selection["feature"].unique().tolist(), dtf_features
+    return dtf_features["feature"].unique().tolist(), dtf_features
 
 
 
@@ -640,7 +661,7 @@ def features_selection(X, y, X_names, top=None, print_top=10):
 Transform a sparse matrix into a dtf with selected features only.
 :parameter
     :param X: array - like sparse matrix or dtf.values
-    :param X: dic_vocabulary - {"word":idx}
+    :param dic_vocabulary: dict - {"word":idx}
     :param X_names: list of words - like vetcorizer.get_feature_names()
     :param prefix: str - ex. "x_" -> x_word1, x_word2, ..
 '''
@@ -812,40 +833,55 @@ def plot_w2v(nlp=None, plot_type="2d", word=None, top=20, figsize=(10,5)):
         print(e)
         if type(word) is str:
             print("maybe you are looking for ... ")
-            print([k for k in list(nlp.vocab.keys()) if difflib.SequenceMatcher(isjunk=None, a=word, b=k).ratio()>0.7])
+            print([k for k in list(nlp.vocab.keys()) if 1-nltk.jaccard_distance(set(word),set(k)) > 0.7])
     
 
 
 '''
 Embeds a vocabulary of unigrams with gensim w2v.
+:parameter
+    :param dic_vocabulary: dict - {"word":1, "word":2, ...}
+    :param nlp: gensim model
+    :param size: num - dimensionality of the vectors
+:return
+    Matric and the nlp model
 '''
-def vocabulary_embeddings(dic_vocabulary, nlp=None, dim_space=300):
+def vocabulary_embeddings(dic_vocabulary, nlp=None, size=300):
     nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    embeddings = np.zeros((len(dic_vocabulary)+1, dim_space))
+    embeddings = np.zeros((len(dic_vocabulary)+1, size))
     for word,idx in dic_vocabulary.items():
+        ## update the row with vector
         try:
             embeddings[idx] =  nlp[word]
+        ## if word not in model then skip and the row stays all zeros
         except:
             pass
-    print("shape: ", embeddings.shape)
+    print("vocabulary mapped to", embeddings.shape[0], "vectors of size", embeddings.shape[1])
     return embeddings
 
 
     
 '''
 Transforms the corpus into an array of sequences of idx with same length.
-    :param corpus: list - dtf["text"]
+:parameter
+    :param corpus: list - dtf["text"]
+    :param vocabulary: list of words or dict, if None it creates from scratch, else it searches the words into corpus
+    :param maxlen: num - dimensionality of the vectors, if None takes the max length in corpus
+    :param padding: string - "pre" for [9999,1,2,3] "post"  for [1,2,3,9999]
+:return
+    Matrix of sequences and dic_vocabulary
 '''
-def text2seq(corpus, vectorizer=None, vocabulary=None, maxlen=None, top=None, figsize=(10,5)):
-    ## fit BoW with fixed vocabulary
-    dic = fit_bow(corpus, vectorizer=None, vocabulary=vocabulary, top=top, figsize=figsize)
+def text2seq(corpus, vocabulary=None, maxlen=None, padding="pre"):
+    ## fit BoW to get text2tokens (because pad_sequences requires number inputs)
+    vectorizer = feature_extraction.text.TfidfVectorizer(max_features=None, ngram_range=(1,1), vocabulary=vocabulary)
+    dic = fit_bow(corpus, vectorizer=vectorizer, vocabulary=vocabulary)
     lst_text2tokens, dic_vocabulary = dic["lst_text2tokens"], dic["dic_vocabulary"]
     
-    ## create sequence with keras preprocessing
+    ## create sequence with keras preprocessing (from [1,2],[3,4,5] to [1,2,9999],[3,4,5])
     print("--- padding to sequence ---")
     maxlen = np.max([len(text.split()) for text in corpus]) if maxlen is None else maxlen
-    X = kprocessing.sequence.pad_sequences(lst_text2tokens, maxlen=maxlen, value=len(dic_vocabulary))
-    print("shape:", X.shape)
+    X = kprocessing.sequence.pad_sequences(lst_text2tokens, maxlen=maxlen, value=len(dic_vocabulary), padding=padding, truncating=padding)
+    print(X.shape[0], "sequences of length", X.shape[1]) 
     return X, dic_vocabulary
 
 
@@ -854,22 +890,29 @@ def text2seq(corpus, vectorizer=None, vocabulary=None, maxlen=None, top=None, fi
 Plot loss and metrics of keras training.
 '''
 def utils_plot_keras_training(training):
-    metric = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)][0]
+    metrics = [k for k in training.history.keys() if ("loss" not in k) and ("val" not in k)]
     fig, ax = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(15,3))
+    
+    ## training
     ax[0].set(title="Training")
     ax11 = ax[0].twinx()
-    ax[0].plot(training.history['loss'], color='blue')
-    ax11.plot(training.history[metric], color='green')
+    ax[0].plot(training.history['loss'], color='black')
     ax[0].set_xlabel('Epochs')
-    ax[0].set_ylabel('Loss', color='blue')
-    ax11.set_ylabel(metric.capitalize(), color='green')
+    ax[0].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax11.plot(training.history[metric], label=metric)
+    ax11.set_ylabel("Score", color='steelblue')
+    ax11.legend()
+    
+    ## validation
     ax[1].set(title="Validation")
     ax22 = ax[1].twinx()
-    ax[1].plot(training.history['val_loss'], color='blue')
-    ax22.plot(training.history['val_'+metric], color='green')
+    ax[1].plot(training.history['val_loss'], color='black')
     ax[1].set_xlabel('Epochs')
-    ax[1].set_ylabel('Loss', color='blue')
-    ax22.set_ylabel(metric.capitalize(), color='green')
+    ax[1].set_ylabel('Loss', color='black')
+    for metric in metrics:
+        ax22.plot(training.history['val_'+metric], label=metric)
+    ax22.set_ylabel("Score", color="steelblue")
     plt.show()
 
 
@@ -877,35 +920,33 @@ def utils_plot_keras_training(training):
 '''
 Fits a keras classification model.
 :parameter
-    :param dic_y_mapping: dict - {0:"A", 1:"B", 2:"C"}
-    :param model: model object - model to fit (before fitting)
-    :param embeddings: array of embeddings
+    :param dic_y_mapping: dict - {0:"A", 1:"B", 2:"C"}. If None it calculates.
     :param X_train: array of sequence
     :param y_train: array of classes
     :param X_test: array of sequence
+    :param model: model object - model to fit (before fitting)
+    :param weights: array of weights - like embeddings
 :return
     model fitted and predictions
 '''
-def dl_text_classif(dic_y_mapping, X_train, y_train, X_test, model=None, embeddings=None, epochs=10, batch_size=256):
+def dl_text_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, weights=None, epochs=10, batch_size=256):
     ## encode y
-    inverse_dic = {v:k for k,v in dic_y_mapping.items()}
-    y_train = [inverse_dic[y] for y in y_train]   #y_test = [dic_y_mapping[y] for y in y_test]
+    if encode_y is True:
+        dic_y_mapping = {n:label for n,label in enumerate(np.unique(y_train))}
+        inverse_dic = {v:k for k,v in dic_y_mapping.items()}
+        y_train = [inverse_dic[y] for y in y_train]
+        print(dic_y_mapping)
     
     ## model
     if model is None:
         ### params
-        n_features = embeddings.shape[0]
-        embeddings_dim = embeddings.shape[1]
+        n_features, embeddings_dim = weights.shape
         max_seq_lenght = X_train.shape[1]
         ### neural network
-        model = models.Sequential()
-        model.add( layers.Embedding(input_dim=n_features, 
-                                    output_dim=embeddings_dim, 
-                                    weights=[embeddings],
-                                    input_length=max_seq_lenght, 
-                                    trainable=False) )
-        model.add( layers.LSTM(units=max_seq_lenght, dropout=0.2) )
-        model.add( layers.Dense(len(np.unique(y_train)), activation='softmax') )
+        model = models.Sequential([
+            layers.Embedding(input_dim=n_features, output_dim=embeddings_dim, weights=[weights], input_length=max_seq_lenght, trainable=False),
+            layers.LSTM(units=X_train.shape[1], dropout=0.2),
+            layers.Dense(len(np.unique(y_train)), activation='softmax')])
         model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     
     ## train
@@ -915,9 +956,91 @@ def dl_text_classif(dic_y_mapping, X_train, y_train, X_test, model=None, embeddi
     
     ## test
     predicted_prob = model.predict(X_test)
-    predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob]
+    predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob] if encode_y is True else [np.argmax(pred)]
     return training.model, predicted_prob, predicted
+
+
+
+'''
+Takes the weights of an Attention layer and builds an explainer.
+:parameter
+    :param model: model instance (after fitting)
+    :param X_instance: array of size n (n,)
+    :param dic_vocabulary: dict - {"word":0, ...}
+    :param txt_instance: string - raw text
+    :param similarity_thres: num - if None it doesn't use similarity
+    :param top: num - top features to display
+:return
+    text html, it can be visualized on notebook with display(HTML(text))
+'''
+def explainer_attention(model, X_instance, dic_vocabulary, txt_instance=None, similarity_thres=None, top=10, figsize=(5,3)):
+    ## get attention weights
+    layer = [layer for layer in model.layers if "attention" in layer.name][0]
+    func = K.function([model.input], [layer.output])
+    weights = func(X_instance.reshape(1,-1))[0]
+    weights = np.mean(weights, axis=2).flatten()
     
+    ## remove null vectors 
+    inverted_dic = {v:k for k,v in dic_vocabulary.items()}
+    words, weights_ = [], []
+    for n,idx in enumerate(X_instance):
+        if idx < len(dic_vocabulary):
+            words.append(inverted_dic[idx])
+            weights_.append(weights[n])
+    
+    ## rescale weights between 0-1   
+    weights = preprocessing.MinMaxScaler(feature_range=(0,1)).fit_transform(np.array(weights_).reshape(-1,1)).reshape(-1)
+    dic_word_weigth = {word:weights[n] for n,word in enumerate(words)}
+    
+    ## plot
+    dtf = pd.DataFrame.from_dict(dic_word_weigth, orient='index', columns=["score"])
+    dtf.sort_values(by="score", ascending=True).tail(top).plot(kind="barh", legend=False, figsize=figsize).grid(axis='x')
+    plt.show()
+
+    ## return html
+    text = []
+    txt_instance = txt_instance if txt_instance is not None else ' '.join(words)
+    for word in txt_instance.split():
+
+        ### match words in vocabulary with txt_instance if txt_instance is not preprocessed and vocabulary is
+        if similarity_thres is not None:
+            similarities = [1-nltk.jaccard_distance(set(word.lower()), set(word_in_vocab.lower())) for word_in_vocab in words]
+            max_pos = np.argmax(similarities)
+            word_in_vocab, similarity = words[max_pos], similarities[max_pos]
+            weight = dic_word_weigth.get(word_in_vocab) if similarity > similarity_thres else None
+        else:
+            weight = dic_word_weigth.get(word_in_vocab)
+
+        ### create html visualization (yellow:255,215,0 | blue:100,149,237)
+        if weight is not None:
+            text.append('<b><span style="background-color:rgba(100,149,237,' + str(weight) + ');">' + word + '</span></b>')
+        else:
+            text.append(word)
+
+    text = ' '.join(text)
+    return text
+
+
+
+'''
+Use shap to build an a explainer (works only if model has binary_crossentropy).
+:parameter
+    :param model: model instance (after fitting)
+    :param X_train: array
+    :param X_instance: array of size n (n,)
+    :param dic_vocabulary: dict - {"word":0, ...}
+    :param class_names: list - labels
+    :param top: num - top features to display
+:return
+    dtf with explanations
+'''
+def explainer_shap(model, X_train, X_instance, dic_vocabulary, class_names, top=10):
+    explainer = shap.DeepExplainer(model, data=X_train[:100])
+    shap_values = explainer.shap_values(X_instance.reshape(1,-1))
+    inv_dic_vocabulary = {v:k for k,v in dic_vocabulary.items()}
+    X_names = [inv_dic_vocabulary[idx] if idx in dic_vocabulary.values() else " " for idx in X_instance]
+    shap.summary_plot(shap_values, feature_names=X_names, class_names=class_names, plot_type="bar") 
+
 
 
 ###############################################################################
@@ -1036,14 +1159,14 @@ def predict_clusters_w2v(corpus, dic_clusters, nlp=None, pca=None):
 '''
 Fits Latent Dirichlet Allocation with gensim.
 :parameter
-    :param lst_lst_corpus: list - 
-    :param n_topics: num -
-    :param n_words: num -
-    :param plot: logic -
+    :param corpus: list - dtf["text"]
+    :param ngrams: num
+    :param grams_join: string - "_", " ", or more (ex. "new york" --> "new_york")
+    :param n_topics: num - number of topics to find
 :return
-    dic with model and dtf topics
+    model and dtf topics
 '''
-def fit_lda(corpus, ngrams=1, grams_join="_", n_topics=3, n_words=5, plot=True, figsize=(10,7)):
+def fit_lda(corpus, ngrams=1, grams_join="_", n_topics=3, figsize=(10,7)):
     ## train the lda
     lst_corpus = utils_preprocess_ngrams(corpus, ngrams, grams_join)
     id2word = gensim.corpora.Dictionary(lst_corpus) #map words with an id
@@ -1052,17 +1175,13 @@ def fit_lda(corpus, ngrams=1, grams_join="_", n_topics=3, n_words=5, plot=True, 
     lda_model = gensim.models.ldamodel.LdaModel(corpus=dic_corpus, id2word=id2word, num_topics=n_topics, 
                                                 random_state=123, update_every=1, chunksize=100, 
                                                 passes=10, alpha='auto', per_word_topics=True)
-    print("--- model fitted ---")
     
     ## output
     lst_dics = []
     for i in range(0, n_topics):
         lst_tuples = lda_model.get_topic_terms(i)
         for tupla in lst_tuples:
-            word_id = tupla[0]
-            word = id2word[word_id]
-            weight = tupla[1]
-            lst_dics.append({"topic":i, "id":word_id, "word":word, "weight":weight})
+            lst_dics.append({"topic":i, "id":tupla[0], "word":id2word[tupla[0]], "weight":tupla[1]})
     dtf_topics = pd.DataFrame(lst_dics, columns=['topic','id','word','weight'])
     
     ## plot

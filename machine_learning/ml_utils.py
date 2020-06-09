@@ -78,7 +78,7 @@ def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
     plt.show()
     
     ## add legend
-    print("\033[1;37;40m Categerocial ", "\033[1;30;41m Numerical ", "\033[1;30;47m NaN ")
+    print("\033[1;37;40m Categerocial \033[m", "\033[1;30;41m Numerical \033[m", "\033[1;30;47m NaN \033[m")
 
 
 
@@ -1327,7 +1327,7 @@ def explainer_shap(model, X_names, X_instance, X_train=None, task="classificatio
         shap_values = explainer.shap_values(X_instance)
     ### deep learning
     else:
-        explainer = shap.DeepExplainer(model, data=X_train)
+        explainer = shap.DeepExplainer(model, data=X_train[:100])
         shap_values = explainer.shap_values(X_instance.reshape(1,-1))[0].reshape(-1)
 
     ## plot
