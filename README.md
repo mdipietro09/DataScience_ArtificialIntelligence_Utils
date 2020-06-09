@@ -81,7 +81,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 	* Explainability 
 
-		<img src="_docs/nlp_explain.PNG" width="600" height="100">
+		<img src="_docs/nlp_explain.PNG" width="600" height="50">
 
 ------
 
