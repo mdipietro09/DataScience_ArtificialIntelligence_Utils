@@ -948,9 +948,9 @@ def dl_text_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None
             layers.LSTM(units=X_train.shape[1], dropout=0.2),
             layers.Dense(len(np.unique(y_train)), activation='softmax')])
         model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    
+        print(model.summary())
+        
     ## train
-    print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     utils_plot_keras_training(training)
     

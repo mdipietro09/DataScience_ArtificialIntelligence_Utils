@@ -1001,9 +1001,9 @@ def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=
             layers.Dropout(rate=0.2),
             layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid') ])
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
+        print(model.summary())
     
     ## train
-    print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     utils_plot_keras_training(training)
     
@@ -1198,9 +1198,9 @@ def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, e
             layers.Dropout(rate=0.2),
             layers.Dense(units=1, kernel_initializer='normal', activation='linear') ])
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=[R2])
+        print(model.summary())
 
     ## train
-    print(model.summary())
     training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     utils_plot_keras_training(training)
     
