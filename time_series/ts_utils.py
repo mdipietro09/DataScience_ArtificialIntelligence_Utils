@@ -747,9 +747,9 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
         model.add( layers.LSTM(input_shape=X_train.shape[1:], units=50, activation='relu', return_sequences=False) )
         model.add( layers.Dense(1) )
         model.compile(optimizer='adam', loss='mean_absolute_error')
-    
+        print(model.summary())
+        
     ## train
-    print(model.summary())
     training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
     utils_plot_keras_training(training)
     
