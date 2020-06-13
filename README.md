@@ -31,7 +31,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 	
 	* Model
 		
-		<img src="_docs/regr_model.PNG" width="400" height="200">
+		<img src="_docs/regr_model.gif" width="400" height="200">
 	
 	* Evaluation
 	
@@ -69,7 +69,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 - <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_natural_language_processing/example_text_classification.ipynb)**</ins>
 	* Analysis
 		
-		<img src="_docs/wv.gif" width="400" height="200">
+		<img src="_docs/wv.gif" width="400" height="300">
 
 	* Model
 		
@@ -87,9 +87,13 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 ### 4. Computer Vision:
 - <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_computer_vision/example_detection_and_classification.ipynb)**</ins>
+	* Preprocessing
+
+		<img src="_docs/cv_preprocess.PNG" width="600" height="100">
+
 	* Object detection
 
-		<img src="_docs/cv_detect.PNG" width="600" height="100">
+		<img src="_docs/cv_detection.gif" width="600" height="100">
 
 ------
 
