@@ -69,7 +69,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 - <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_natural_language_processing/example_text_classification.ipynb)**</ins>
 	* Analysis
 		
-		<img src="_docs/nlp_analysis.gif" width="400" height="300">
+		<img src="_docs/nlp_analysis.gif" width="400" height="250">
 
 	* Model
 		
