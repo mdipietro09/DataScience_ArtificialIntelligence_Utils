@@ -803,7 +803,7 @@ Fits a sklearn classification model.
 :return
     model fitted and predictions
 '''
-def fit_classif_model(model, X_train, y_train, X_test, threshold=0.5):
+def fit_ml_classif(model, X_train, y_train, X_test, threshold=0.5):
     ## model
     model = ensemble.GradientBoostingClassifier() if model is None else model
     
@@ -959,7 +959,7 @@ def utils_plot_keras_training(training):
 
 
 '''
-Fits a keras artificial neural network.
+Fits a keras artificial/deep neural network.
 :parameter
     :param X_train: array
     :param y_train: array
@@ -970,7 +970,7 @@ Fits a keras artificial neural network.
 :return
     model fitted and predictions
 '''
-def fit_ann_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, threshold=0.5):
+def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, threshold=0.5):
     ## model
     if model is None:
         ### define F1 metrics for Keras
@@ -1103,7 +1103,7 @@ Fits a sklearn regression model.
 :return
     model fitted and predictions
 '''
-def fit_regr_model(model, X_train, y_train, X_test, scalerY=None):  
+def fit_ml_regr(model, X_train, y_train, X_test, scalerY=None):  
     ## model
     model = ensemble.GradientBoostingRegressor() if model is None else model
     
@@ -1167,7 +1167,7 @@ def tune_regr_model(X_train, y_train, model_base=None, param_dic=None, scoring="
 
 
 '''
-Fits a keras artificial neural network.
+Fits a keras deep/artificial neural network.
 :parameter
     :param X_train: array
     :param y_train: array
@@ -1178,7 +1178,7 @@ Fits a keras artificial neural network.
 :return
     model fitted and predictions
 '''
-def fit_ann_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
+def fit_ml_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
     ## model
     if model is None:
         ### define R2 metric for Keras
@@ -1465,7 +1465,7 @@ def plot3d_regr_model(X_train, y_train, X_test, y_test, scalerY=None, model=None
 '''
 Extract info for each layer in a keras model.
 '''
-def utils_ann_config(model):
+def utils_nn_config(model):
     lst_layers = []
     for layer in model.layers:
         if "drop" in layer.name:
@@ -1484,9 +1484,9 @@ def utils_ann_config(model):
 '''
 Plot the structure of a keras neural network.
 '''
-def visualize_ann(model, titles=False, figsize=(10,8)):
+def visualize_nn(model, titles=False, figsize=(10,8)):
     ## get layers info
-    lst_layers = utils_ann_config(model)
+    lst_layers = utils_nn_config(model)
     layer_sizes, layer_infos = [], []
     for i,layer in enumerate(lst_layers):
         if "drop" not in layer["name"]:

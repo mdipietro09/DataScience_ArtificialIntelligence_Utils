@@ -1,0 +1,18 @@
+## data
+numpy==1.16.4
+pandas==0.25.1
+xlrd==1.2.0
+## plot
+matplotlib==3.1.2
+seaborn==0.9.0
+## machine learning
+scikit-learn==0.22
+## deep learning
+tensorflow==1.13.2
+## nlp
+nltk==3.4.5
+spacy==2.2.3
+gensim==3.8.1
+wordcloud==1.6.0
+langdetect==1.0.7
+textblob==0.15.3

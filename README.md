@@ -31,7 +31,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 	
 	* Model
 		
-		<img src="_docs/regr_model.gif" width="400" height="200">
+		<img src="_docs/regr_model.gif" width="450" height="250">
 	
 	* Evaluation
 	
@@ -93,7 +93,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 	* Object detection
 
-		<img src="_docs/cv_detection.gif" width="450" height="250">
+		<img src="_docs/cv_detection.gif" width="400" height="250">
 
 ------
 
