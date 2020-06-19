@@ -66,7 +66,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 ------
 
 ### 3. Natural Language Processing:
-- <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_natural_language_processing/example_text_classification.ipynb)**</ins>
+- <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_classification.ipynb)**</ins>
 	* Analysis
 		
 		<img src="_docs/nlp_analysis.gif" width="450" height="250">
@@ -86,7 +86,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 ------
 
 ### 4. Computer Vision:
-- <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/deep_learning_computer_vision/example_detection_and_classification.ipynb)**</ins>
+- <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
 	* Preprocessing
 
 		<img src="_docs/cv_preprocess.PNG" width="600" height="100">
