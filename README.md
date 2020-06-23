@@ -44,7 +44,7 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 ------
 
 ### 2. Time Series:
-- <ins>**[Forecsting](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_forecast.ipynb)**</ins>
+- <ins>**[Forecasting](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_forecast.ipynb)**</ins>
 	* Analysis
 	
 		<img src="_docs/ts_analysis.PNG" width="400" height="150">

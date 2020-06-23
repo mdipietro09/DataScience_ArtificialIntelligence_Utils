@@ -1121,7 +1121,7 @@ def word_clustering(corpus, nlp=None, ngrams=1, grams_join=" ", lst_ngrams_detec
     ## fit K-Means
     print("--- training K-means ---")
     X = nlp[nlp.vocab.keys()]
-    kmeans_model = nltk.cluster.KMeansClusterer(k, distance=nltk.cluster.util.cosine_distance, repeats=50)
+    kmeans_model = nltk.cluster.KMeansClusterer(n_clusters, distance=nltk.cluster.util.cosine_distance, repeats=50, avoid_empty_clusters=True)
     clusters = kmeans_model.cluster(X, assign_clusters=True)
     dic_clusters = {word:clusters[i] for i,word in enumerate(list(nlp.vocab.keys()))}
     dtf_clusters = pd.DataFrame({"word":word, "cluster":str(clusters[i])} for i,word in enumerate(list(nlp.vocab.keys())))
