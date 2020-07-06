@@ -1,8 +1,8 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
-Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya*, 
-links are in the notebooks or you can check [here](https://medium.com/@m.dipietro09).
+Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* ( 
+links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)).
 
 
 
@@ -83,6 +83,9 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 
 		<img src="_docs/nlp_explain.PNG" width="600" height="50">
 
+- <ins>**[Chatbot](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_chatbot.ipynb)**</ins>
+	* work in progress
+
 ------
 
 ### 4. Computer Vision:
@@ -98,5 +101,5 @@ links are in the notebooks or you can check [here](https://medium.com/@m.dipietr
 ------
 
 ### 5. Reinforcement Learning:
-- <ins>**[Artificial Intelligence agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_artificial_intelligence.ipynb)**</ins>
+- <ins>**[Artificial Intelligence agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_ai_agent.ipynb)**</ins>
 	* work in progress
