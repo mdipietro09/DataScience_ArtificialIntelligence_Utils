@@ -36,6 +36,9 @@ import shap
 import gensim
 import gensim.downloader as gensim_api
 
+## for bert
+import transformers
+
 
 
 ###############################################################################
@@ -146,7 +149,7 @@ def create_stopwords(lst_langs=["english"], lst_add_words=[], lst_keep_words=[])
 '''
 Preprocess a string.
 :parameter
-    :param text: string - name of column containing text
+    :param txt: string - name of column containing text
     :param lst_regex: list - list of regex to remove
     :param lst_stopwords: list - list of stopwords to remove
     :param flg_stemm: bool - whether stemming is to be applied
@@ -154,39 +157,39 @@ Preprocess a string.
 :return
     cleaned text
 '''
-def utils_preprocess_text(text, lst_regex=None, lst_stopwords=None, flg_stemm=False, flg_lemm=True):
+def utils_preprocess_text(txt, lst_regex=None, lst_stopwords=None, flg_stemm=False, flg_lemm=True):
     ## regex (in case, before processing)
     if lst_regex is not None: 
         for regex in lst_regex:
-            text = re.sub(regex, '', text)
+            txt = re.sub(regex, '', txt)
     
     ## clean (convert to lowercase and remove punctuations and characters and then strip)
-    text = re.sub(r'[^\w\s]', '', str(text).lower().strip())
+    txt = re.sub(r'[^\w\s]', '', str(txt).lower().strip())
             
     ## Tokenize (convert from string to list)
-    lst_text = text.split()
+    lst_txt = txt.split()
 
     ## remove Stopwords
     if lst_stopwords is not None:
-        lst_text = [word for word in lst_text if word not in lst_stopwords]
+        lst_txt = [word for word in lst_txt if word not in lst_stopwords]
                 
     ## Stemming (remove -ing, -ly, ...)
     if flg_stemm == True:
         ps = nltk.stem.porter.PorterStemmer()
-        lst_text = [ps.stem(word) for word in lst_text]
+        lst_txt = [ps.stem(word) for word in lst_txt]
                 
     ## Lemmatisation (convert the word into root word)
     if flg_lemm == True:
         lem = nltk.stem.wordnet.WordNetLemmatizer()
-        lst_text = [lem.lemmatize(word) for word in lst_text]
+        lst_txt = [lem.lemmatize(word) for word in lst_txt]
 
     ## remove leftover Stopwords
     if lst_stopwords is not None:
-        lst_text = [word for word in lst_text if word not in lst_stopwords]
+        lst_txt = [word for word in lst_txt if word not in lst_stopwords]
             
     ## back to string from list
-    text = " ".join(lst_text)
-    return text
+    txt = " ".join(lst_txt)
+    return txt
 
 
 
@@ -735,7 +738,7 @@ def explainer_lime(model, y_train, txt_instance, top=10):
 
 
 ###############################################################################
-#                             WORD2VEC (EMBEDDING)                            #
+#                        WORD2VEC (WORD EMBEDDING)                            #
 ###############################################################################
 '''
 Create a list of lists of grams with gensim:
@@ -1018,8 +1021,10 @@ def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None,
         print(model.summary())
         
     ## train
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    utils_plot_keras_training(training)
+    verbose = 0 if epochs > 1 else 1
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
+    if epochs > 1:
+        utils_plot_keras_training(training)
     
     ## test
     predicted_prob = model.predict(X_test)
@@ -1342,6 +1347,130 @@ def predict_similarity_w2v(corpus, dic_clusters, nlp=None, pca=None):
     predicted_prob = np.array([predicted_prob[i]/sum(predicted_prob[i]) if sum(predicted_prob[i])>0 else [1,0,0] for i in range(len(predicted_prob))]) #rescale so they sum=1
     predicted = [cluster_names[np.argmax(pred)] for pred in predicted_prob]
     return predicted_prob, predicted
+
+
+
+###############################################################################
+#                      BERT (TRANSFORMERS LANGUAGE MODEL)                     #
+###############################################################################
+'''
+Preprocess corpus to create features for Bert.
+:parameter
+    :param corpus: list - dtf["text"]
+    :param tokenizer: transformer tokenizer
+    :param maxlen: num - max length of the padded sequence 
+:return
+    tensor/list with idx, masks, segments
+'''
+# def tokenize_bert(corpus, tokenizer=None, maxlen=None):
+#     tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True) if tokenizer is None else tokenizer
+#     maxlen = np.max([len(i.split()) for i in corpus]) if maxlen is None else maxlen
+#     idx, masks, types = [],[],[]
+#     for txt in corpus:
+#         dic_tokens = tokenizer.encode_plus(txt, add_special_tokens=True, max_length=maxlen)
+#         idx.append(dic_tokens['input_ids'])
+#         masks.append(dic_tokens['special_tokens_mask'])
+#         types.append(dic_tokens['token_type_ids'])        
+#     return [np.asarray(idx, dtype='int32'), np.asarray(masks, dtype='int32'), np.asarray(types, dtype='int32')]
+
+def tokenize_bert(corpus, tokenizer=None, maxlen=None):
+    tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True) if tokenizer is None else tokenizer
+    maxlen = np.max([len(txt.split(" ")) for txt in corpus]) if maxlen is None else maxlen
+    if maxlen < 20:
+        raise Exception("maxlen cannot be less than 20")
+    else:
+        print("maxlen:", maxlen)
+
+    ## add special tokens: [CLS] my name is mau ##ro [SEP]
+    maxqnans = np.int((maxlen-20)/2)
+    corpus_preprocessed = ["[CLS] "+
+                           " ".join(tokenizer.tokenize(re.sub(r'[^\w\s]+|\n', '', str(txt).lower().strip()))[:maxqnans])+
+                           " [SEP] " for txt in corpus]
+   
+    ## generate masks: [1, 1, 1, 1, 1, 1, 1, | (padding) 0, 0, 0, 0, 0, ...]
+    masks = [[1]*len(txt.split(" ")) + [0]*(maxlen - len(txt.split(" "))) for txt in corpus_preprocessed]
+    
+    ## padding
+    #corpus_preprocessed = kprocessing.sequence.pad_sequences(corpus_preprocessed, maxlen=maxlen, dtype=object, value='[PAD]')
+    txt2seq = [txt + " [PAD]"*(maxlen-len(txt.split(" "))) if len(txt.split(" ")) != maxlen else txt for txt in corpus_preprocessed]
+    
+    ## generate idx: [101, 22, 35, 44, 50, 60, 102, 0, 0, 0, 0, 0, 0, ...]
+    idx = [tokenizer.encode(seq.split(" ")) for seq in txt2seq]
+    
+    ## generate segments: [0, 0, 0, 0, 0, 0, 1 [SEP], 0, 0, 0, 0, 2 [SEP], 0, ...]
+    segments = [] 
+    for seq in txt2seq:
+        temp, i = [], 0
+        for token in seq.split(" "):
+            temp.append(i)
+            if token == "[SEP]":
+                i += 1
+        segments.append(temp)
+    
+    ## check
+    genLength = set([len(seq.split(" ")) for seq in txt2seq])
+    if len(genLength) != 1: 
+        print(genLength)
+        raise Exception("--- texts are not of same size ---")
+
+    X = [np.asarray(idx, dtype='int32'), np.asarray(masks, dtype='int32'), np.asarray(segments, dtype='int32')]
+    print("created tensor idx-masks-segments:", str(len(X))+"x "+str(X[0].shape))
+    return X
+
+
+
+'''
+Pre-trained Bert + Fine-tuning (transfer learning) with tf2 and transformers.
+:parameter
+    :param X_train: array of sequence
+    :param y_train: array of classes
+    :param X_test: array of sequence
+    :param model: model object - model to fit (before fitting)
+    :param encode_y: bool - whether to encode y with a dic_y_mapping
+    :param dic_y_mapping: dict - {0:"A", 1:"B", 2:"C"}. If None it calculates
+    :param epochs: num - epochs to run
+    :param batch_size: num - it does backpropagation every batch, the more the faster but it can use all the memory
+:return
+    model fitted and predictions
+'''
+def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, epochs=1, batch_size=64):
+    ## encode y
+    if encode_y is True:
+        dic_y_mapping = {n:label for n,label in enumerate(np.unique(y_train))}
+        inverse_dic = {v:k for k,v in dic_y_mapping.items()}
+        y_train = np.array( [inverse_dic[y] for y in y_train] )
+    print(dic_y_mapping)
+    
+    ## model
+    if model is None:
+        ### inputs
+        idx = layers.Input((X_train[0].shape[1]), dtype="int32", name="input_idx")
+        masks = layers.Input((X_train[1].shape[1]), dtype="int32", name="input_masks")
+        segments = layers.Input((X_train[2].shape[1]), dtype="int32", name="input_segments")
+        ### pre-trained bert
+        bert = transformers.TFBertModel.from_pretrained("bert-base-uncased")
+        bert_out, _ = bert([idx, masks, segments])
+        ### fine-tuning
+        x = layers.GlobalAveragePooling1D()(bert_out)
+        x = layers.Dense(64, activation="relu")(x)
+        y_out = layers.Dense(len(np.unique(y_train)), activation='softmax')(x)
+        ### compile
+        model = models.Model([idx, masks, segments], y_out)
+        for layer in model.layers[:4]:
+            layer.trainable = False
+        model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+        print(model.summary())
+        
+    ## train
+    verbose = 0 if epochs > 1 else 1
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
+    if epochs > 1:
+        utils_plot_keras_training(training)
+    
+    ## test
+    predicted_prob = model.predict(X_test)
+    predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob] if encode_y is True else [np.argmax(pred)]
+    return training.model, predicted_prob, predicted
 
 
 

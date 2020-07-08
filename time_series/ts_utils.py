@@ -750,8 +750,10 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
         print(model.summary())
         
     ## train
-    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
-    utils_plot_keras_training(training)
+    verbose = 0 if epochs > 1 else 1
+    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=verbose, validation_split=0.3)
+    if epochs > 1:
+        utils_plot_keras_training(training)
     
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = utils_fitted_lstm(ts_train, training.model, scaler, exog)

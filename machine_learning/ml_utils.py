@@ -1004,8 +1004,10 @@ def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=1
         print(model.summary())
     
     ## train
-    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    utils_plot_keras_training(training)
+    verbose = 0 if epochs > 1 else 1
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
+    if epochs > 1:
+        utils_plot_keras_training(training)
     
     ## test
     predicted_prob = training.model.predict(X_test)
@@ -1178,7 +1180,7 @@ Fits a keras deep/artificial neural network.
 :return
     model fitted and predictions
 '''
-def fit_ml_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
+def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
     ## model
     if model is None:
         ### define R2 metric for Keras
@@ -1201,8 +1203,10 @@ def fit_ml_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
         print(model.summary())
 
     ## train
-    training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
-    utils_plot_keras_training(training)
+    verbose = 0 if epochs > 1 else 1
+    training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
+    if epochs > 1:
+        utils_plot_keras_training(training)
     
     ## test
     predicted = training.model.predict(X_test)
