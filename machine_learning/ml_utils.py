@@ -1263,52 +1263,6 @@ def evaluate_regr_model(y_test, predicted, figsize=(25,5)):
 
 
 ###############################################################################
-#                         UNSUPERVISED                                        #
-###############################################################################
-'''
-Clusters data with k-means.
-:paramater
-    :param X: array
-    :param X_names: list
-    :param wcss_max_num: num or None- max iteration for wcss
-    :param k: num or None - number of clusters
-    :lst_features_2Dplot: list or None - two features to use for a 2D plot
-:return
-    dtf with X and clusters
-'''
-def clustering(X, X_names, wcss_max_num=10, k=3, lst_features_2Dplot=None):
-    ## within-cluster sum of squares
-    if wcss_max_num is not None:
-        wcss = [] 
-        for i in range(1, wcss_max_num + 1):
-            kmeans = cluster.KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=10, random_state=0)
-            kmeans.fit(X)
-            wcss.append(kmeans.inertia_)
-        plt.plot(range(1, wcss_max_num + 1), wcss)
-        plt.title('The Elbow Method')
-        plt.xlabel('Number of clusters')
-        plt.ylabel('WCSS')
-        plt.show()
-    
-    ## k-mean
-    elif k is not None:
-        model = cluster.KMeans(n_clusters=k, init='k-means++', random_state=0)
-        Y_kmeans= model.fit_predict(X)
-        dtf_clusters = pd.DataFrame(X, columns=X_names)
-        dtf_clusters["cluster"] = Y_kmeans
-        
-        ## plot
-        if lst_features_2Dplot is not None:
-            x1_pos = X_names.index(lst_features_2Dplot[0])
-            x2_pos = X_names.index(lst_features_2Dplot[1])
-            sns.scatterplot(x=lst_features_2Dplot[0], y=lst_features_2Dplot[1], data=dtf_clusters, 
-                            hue='cluster', style="cluster", legend="brief").set_title('K-means clustering')
-            plt.scatter(kmeans.cluster_centers_[:,x1_pos], kmeans.cluster_centers_[:,x2_pos], s=200, c='red', label='Centroids')   
-        return dtf_clusters
-
-
-
-###############################################################################
 #                       EXPLAINABILITY                                        #
 ###############################################################################
 '''
@@ -1552,3 +1506,101 @@ def visualize_nn(model, titles=False, figsize=(10,8)):
                 line = plt.Line2D([i*x_space+left, (i+1)*x_space+left], [layer_top_a-m*y_space, layer_top_b-o*y_space], c='k', alpha=0.5)
                 ax.add_artist(line)
     plt.show()
+
+
+
+###############################################################################
+#                         UNSUPERVISED                                        #
+###############################################################################
+'''
+Find the best K-Means with the within-cluster sum of squares (Elbow method).
+:paramater
+    :param X: array
+    :param max_k: num or None- max iteration for wcss
+    :param plot: bool - if True plots
+:return
+    k
+'''
+def find_best_k(X, max_k=10, plot=True):
+    ## iterations
+    distortions = [] 
+    for i in range(1, max_k+1):
+        if len(X) >= i:
+            model = cluster.KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=10, random_state=0)
+            model.fit(X)
+            distortions.append(model.inertia_)
+
+    ## best k: the lowest second derivative
+    k = [i*100 for i in np.diff(distortions,2)].index(min([i*100 for i in np.diff(distortions,2)]))
+
+    ## plot
+    if plot is True:
+        fig, ax = plt.subplots()
+        ax.plot(range(1, len(distortions)+1), distortions)
+        ax.axvline(k, ls='--', color="red", label="k = "+str(k))
+        ax.set(title='The Elbow Method', xlabel='Number of clusters', ylabel="Distortion")
+        ax.legend()
+        ax.grid(True)
+        plt.show()
+    return k
+
+
+
+'''
+Plot clustering:
+    - for K-Means it plots also theoretical centroids
+    - for Affinity Propagation the centroids are real observations.  
+'''
+def utils_plot_clustering(dtf, x1, x2, model, figsize=(10,5)):
+    fig, ax = plt.subplots(figsize=figsize)
+    k = len(np.unique(model.labels_))
+    sns.scatterplot(x=x1, y=x2, data=dtf, palette=sns.color_palette("bright",k),
+                        hue='cluster', size="centroids", size_order=[1,0],
+                        legend="brief", ax=ax).set_title('Clustering')
+    if "KMeans" in str(model):
+        ax.scatter(model.cluster_centers_[:,dtf.columns.tolist().index(x1)], 
+                   model.cluster_centers_[:,dtf.columns.tolist().index(x2)], 
+                   s=50, c='black', marker="x")
+    ax.grid(True)
+    plt.show()
+
+
+
+'''
+Fit clustering model with K-Means or Affinity Propagation.
+:paramater
+    :param X: array
+    :param X_names: list
+    :param model: sklearn object
+    :param k: num or None - number of clusters, if None Affinity Propagation is used, else K-Means
+    :param lst_2Dplot: list or None - two features to use for a 2D plot
+:return
+    model and dtf with clusters
+'''
+def fit_clustering(X, X_names, model=None, k=None, lst_2Dplot=None, figsize=(10,5)):
+    ## model
+    if (model is None) and (k is None):
+        model = cluster.AffinityPropagation()
+        print("--- k not defined: using Affinity Propagation ---")
+    elif (model is None) and (k is not None):
+        model = cluster.KMeans(n_clusters=k, init='k-means++', random_state=0)
+        print("---", "k="+str(k)+": using k-means ---")
+
+    ## clustering
+    dtf = pd.DataFrame(X, columns=X_names)
+    dtf["cluster"] = model.fit_predict(X)
+    k = dtf["cluster"].nunique()
+    print("--- found", k, "clusters ---")
+    print(dtf.groupby("cluster")["cluster"].count().sort_values(ascending=False))
+
+    ## find real centroids
+    closest, distances = scipy.cluster.vq.vq(model.cluster_centers_, dtf.drop("cluster", axis=1).values)
+    dtf["centroids"] = 0
+    for i in closest:
+        dtf["centroids"].iloc[i] = 1
+    
+    ## plot
+    if lst_2Dplot is not None:
+        utils_plot_clustering(dtf, x1=lst_2Dplot[0], x2=lst_2Dplot[1], model=model, figsize=figsize)
+
+    return model, dtf
