@@ -178,7 +178,7 @@ def utils_preprocess_text(txt, lst_regex=None, lst_stopwords=None, flg_stemm=Fal
         ps = nltk.stem.porter.PorterStemmer()
         lst_txt = [ps.stem(word) for word in lst_txt]
                 
-    ## Lemmatisation (convert the word into root word)
+    ## Lemmatization (convert the word into root word)
     if flg_lemm == True:
         lem = nltk.stem.wordnet.WordNetLemmatizer()
         lst_txt = [lem.lemmatize(word) for word in lst_txt]
@@ -698,18 +698,22 @@ Fits a sklearn classification model.
     :param X_train: feature matrix
     :param y_train: array of classes
     :param X_test: raw text
-    :param vectorizer: ftted vectorizer object
+    :param vectorizer: vectorizer object - if None Tf-Idf is used
     :param classifier: model object - if None MultinomialNB is used
 :return
     fitted model and predictions
 '''
-def fit_ml_classif(X_train, y_train, X_test, vectorizer, classifier=None): 
+def fit_ml_classif(X_train, y_train, X_test, vectorizer=None, classifier=None): 
     ## model pipeline
+    vectorizer = feature_extraction.text.TfidfVectorizer() if vectorizer is None else vectorizer
     classifier = naive_bayes.MultinomialNB() if classifier is None else classifier
     model = pipeline.Pipeline([("vectorizer",vectorizer), ("classifier",classifier)])
     
     ## train
-    model["classifier"].fit(X_train, y_train)
+    if vectorizer is None:
+        model.fit(X_train, y_train)
+    else:
+        model["classifier"].fit(X_train, y_train)
     
     ## test
     predicted = model.predict(X_test)
@@ -730,9 +734,9 @@ Use lime to build an a explainer.
 '''
 def explainer_lime(model, y_train, txt_instance, top=10):
     explainer = lime_text.LimeTextExplainer(class_names=np.unique(y_train))
-    explained = explainer.explain_instance(txt_instance, model.predict_proba, num_features=top)
-    dtf_explainer = pd.DataFrame(explained.as_list(), columns=['feature','effect'])
+    explained = explainer.explain_instance(txt_instance, model.predict_proba, num_features=top) 
     explained.show_in_notebook(text=txt_instance, predict_proba=False)
+    dtf_explainer = pd.DataFrame(explained.as_list(), columns=['feature','effect'])
     return dtf_explainer
 
 
@@ -811,12 +815,12 @@ Fits the Word2Vec model from gensim.
     :param min_count: num - ignores all words with total frequency lower than this
     :param size: num - dimensionality of the vectors
     :param window: num - ( x x x ... x  word  x ... x x x)
-    :param sg: num - 0 for CBOW, 1 for skipgrams
+    :param sg: num - 1 for skip-grams, 0 for CBOW
     :param lst_common_terms: list - ["of","with","without","and","or","the","a"]
 :return
     lst_corpus and the nlp model
 '''
-def fit_w2v(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], min_count=1, size=300, window=20, sg=0, epochs=30):
+def fit_w2v(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], min_count=1, size=300, window=20, sg=1, epochs=30):
     lst_corpus = utils_preprocess_ngrams(corpus, ngrams=ngrams, grams_join=grams_join, lst_ngrams_detectors=lst_ngrams_detectors)
     nlp = gensim.models.word2vec.Word2Vec(lst_corpus, size=size, window=window, min_count=min_count, sg=sg, iter=epochs)
     return lst_corpus, nlp.wv
@@ -889,13 +893,12 @@ Embeds a vocabulary of unigrams with gensim w2v.
 :parameter
     :param dic_vocabulary: dict - {"word":1, "word":2, ...}
     :param nlp: gensim model
-    :param size: num - dimensionality of the vectors
 :return
     Matric and the nlp model
 '''
-def vocabulary_embeddings(dic_vocabulary, nlp=None, size=300):
+def vocabulary_embeddings(dic_vocabulary, nlp=None):
     nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    embeddings = np.zeros((len(dic_vocabulary)+1, size))
+    embeddings = np.zeros((len(dic_vocabulary)+1, nlp.vector_size))
     for word,idx in dic_vocabulary.items():
         ## update the row with vector
         try:
@@ -927,24 +930,24 @@ def text2seq(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], fitted_t
     print("--- tokenization ---")
     
     ## detect common n-grams in corpus
-    corpus = utils_preprocess_ngrams(corpus, ngrams=ngrams, grams_join=grams_join, lst_ngrams_detectors=lst_ngrams_detectors)
+    lst_corpus = utils_preprocess_ngrams(corpus, ngrams=ngrams, grams_join=grams_join, lst_ngrams_detectors=lst_ngrams_detectors)
 
     ## bow with keras to get text2tokens without creating the sparse matrix
     ### train
     if fitted_tokenizer is None:
         tokenizer = kprocessing.text.Tokenizer(num_words=top, lower=True, split=' ', char_level=False, oov_token=oov,
                                                filters='!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n')
-        tokenizer.fit_on_texts(corpus)
+        tokenizer.fit_on_texts(lst_corpus)
         dic_vocabulary = tokenizer.word_index
         print(len(dic_vocabulary), "words")
     else:
         tokenizer = fitted_tokenizer
     ### transform
-    lst_text2tokens = tokenizer.texts_to_sequences(corpus)
+    lst_text2seq = tokenizer.texts_to_sequences(lst_corpus)
 
     ## padding sequence (from [1,2],[3,4,5,6] to [0,0,1,2],[3,4,5,6])
     print("--- padding to sequence ---")
-    X = kprocessing.sequence.pad_sequences(lst_text2tokens, maxlen=maxlen, padding="post", truncating="post")
+    X = kprocessing.sequence.pad_sequences(lst_text2seq, maxlen=maxlen, padding="post", truncating="post")
     print(X.shape[0], "sequences of length", X.shape[1]) 
 
     ## plot heatmap
@@ -1003,7 +1006,7 @@ def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None,
     if encode_y is True:
         dic_y_mapping = {n:label for n,label in enumerate(np.unique(y_train))}
         inverse_dic = {v:k for k,v in dic_y_mapping.items()}
-        y_train = [inverse_dic[y] for y in y_train]
+        y_train = np.array( [inverse_dic[y] for y in y_train] )
     print(dic_y_mapping)
     
     ## model
@@ -1046,8 +1049,8 @@ Takes the weights of an Attention layer and builds an explainer.
 '''
 def explainer_attention(model, tokenizer, txt_instance, lst_ngrams_detectors=[], top=5, figsize=(5,3)):
     ## preprocess txt_instance
-    corpus = utils_preprocess_ngrams([re.sub(r'[^\w\s]', '', txt_instance.lower().strip())], lst_ngrams_detectors=lst_ngrams_detectors)
-    X_instance = kprocessing.sequence.pad_sequences(tokenizer.texts_to_sequences(corpus), maxlen=int(model.input.shape[1]), padding="post", truncating="post")
+    lst_corpus = utils_preprocess_ngrams([re.sub(r'[^\w\s]', '', txt_instance.lower().strip())], lst_ngrams_detectors=lst_ngrams_detectors)
+    X_instance = kprocessing.sequence.pad_sequences(tokenizer.texts_to_sequences(lst_corpus), maxlen=int(model.input.shape[1]), padding="post", truncating="post")
     
     ## get attention weights
     layer = [layer for layer in model.layers if "attention" in layer.name][0]
@@ -1058,7 +1061,7 @@ def explainer_attention(model, tokenizer, txt_instance, lst_ngrams_detectors=[],
     ## rescale weights, remove null vector, map word-weight
     weights = preprocessing.MinMaxScaler(feature_range=(0,1)).fit_transform(np.array(weights).reshape(-1,1)).reshape(-1)
     weights = [weights[n] for n,idx in enumerate(X_instance[0]) if idx != 0]
-    dic_word_weigth = {word:weights[n] for n,word in enumerate(corpus[0]) if word in tokenizer.word_index.keys()}
+    dic_word_weigth = {word:weights[n] for n,word in enumerate(lst_corpus[0]) if word in tokenizer.word_index.keys()}
 
     ## plot
     if len(dic_word_weigth) > 0:
@@ -1070,7 +1073,7 @@ def explainer_attention(model, tokenizer, txt_instance, lst_ngrams_detectors=[],
 
     ## return html visualization (yellow:255,215,0 | blue:100,149,237)
     text = []
-    for word in corpus[0]:
+    for word in lst_corpus[0]:
         weight = dic_word_weigth.get(word)
         if weight is not None:
             text.append('<b><span style="background-color:rgba(100,149,237,' + str(weight) + ');">' + word + '</span></b>')
@@ -1354,6 +1357,27 @@ def predict_similarity_w2v(corpus, dic_clusters, nlp=None, pca=None):
 #                      BERT (TRANSFORMERS LANGUAGE MODEL)                     #
 ###############################################################################
 '''
+Word embedding with Bert.
+:parameter
+    :param txt: string 
+    :param tokenizer: transformers tokenizer
+    :param nlp: transformers bert
+:return
+    tensor sentences x words x vector (1x3x768) 
+'''
+def embedding_bert(txt, tokenizer=None, nlp=None):
+    tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased') if tokenizer is None else tokenizer
+    nlp = transformers.TFBertModel.from_pretrained('bert-base-uncased') if nlp is None else nlp
+    idx = tokenizer.encode(txt)
+    print("tokens:", tokenizer.convert_ids_to_tokens(idx))
+    print("ids   :", tokenizer.encode(txt))
+    idx = np.array(idx)[None,:]  
+    embedding = nlp(idx)  #<-- this returns the hidden layer  
+    return embedding[0]
+
+
+
+'''
 Preprocess corpus to create features for Bert.
 :parameter
     :param corpus: list - dtf["text"]
@@ -1383,16 +1407,16 @@ def tokenize_bert(corpus, tokenizer=None, maxlen=None):
 
     ## add special tokens: [CLS] my name is mau ##ro [SEP]
     maxqnans = np.int((maxlen-20)/2)
-    corpus_preprocessed = ["[CLS] "+
-                           " ".join(tokenizer.tokenize(re.sub(r'[^\w\s]+|\n', '', str(txt).lower().strip()))[:maxqnans])+
-                           " [SEP] " for txt in corpus]
+    corpus_tokenized = ["[CLS] "+
+                        " ".join(tokenizer.tokenize(re.sub(r'[^\w\s]+|\n', '', str(txt).lower().strip()))[:maxqnans])+
+                        " [SEP] " for txt in corpus]
    
     ## generate masks: [1, 1, 1, 1, 1, 1, 1, | (padding) 0, 0, 0, 0, 0, ...]
-    masks = [[1]*len(txt.split(" ")) + [0]*(maxlen - len(txt.split(" "))) for txt in corpus_preprocessed]
+    masks = [[1]*len(txt.split(" ")) + [0]*(maxlen - len(txt.split(" "))) for txt in corpus_tokenized]
     
     ## padding
-    #corpus_preprocessed = kprocessing.sequence.pad_sequences(corpus_preprocessed, maxlen=maxlen, dtype=object, value='[PAD]')
-    txt2seq = [txt + " [PAD]"*(maxlen-len(txt.split(" "))) if len(txt.split(" ")) != maxlen else txt for txt in corpus_preprocessed]
+    #corpus_tokenized = kprocessing.sequence.pad_sequences(corpus_tokenized, maxlen=maxlen, dtype=object, value='[PAD]')
+    txt2seq = [txt + " [PAD]"*(maxlen-len(txt.split(" "))) if len(txt.split(" ")) != maxlen else txt for txt in corpus_tokenized]
     
     ## generate idx: [101, 22, 35, 44, 50, 60, 102, 0, 0, 0, 0, 0, 0, ...]
     idx = [tokenizer.encode(seq.split(" ")) for seq in txt2seq]
