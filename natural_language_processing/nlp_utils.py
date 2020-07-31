@@ -336,7 +336,7 @@ def utils_ner_text(txt, ner=None, lst_tag_filter=None, grams_join="_"):
             try:
                 tagged_txt = re.sub(tag.text, grams_join.join(tag.text.split()), tagged_txt) #it breaks with wild characters like *+
             except Exception as e:
-                next
+                continue
 
     ## extract tags list
     if lst_tag_filter is None:
@@ -1584,3 +1584,11 @@ def vlookup(lst_left, lst_right, algo="cosine", threshold=0.7, top=1):
     except Exception as e:
         print("--- got error ---")
         print(e)
+
+
+
+###############################################################################
+#                     TEXT SUMMARIZATION                                      #
+###############################################################################
+'''
+'''

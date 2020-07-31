@@ -6,6 +6,7 @@ import pandas as pd
 ## for plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
+import itertools
 
 ## for statistical tests
 import scipy
@@ -19,10 +20,15 @@ import imblearn
 
 ## for deep learning
 from tensorflow.keras import models, layers
+import minisom
 
 ## for explainer
 from lime import lime_tabular
 import shap
+
+## for geospatial
+import folium
+import geopy
 
 
 
@@ -60,7 +66,7 @@ def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
         if dic_cols[col] == "cat":
             info = info+" | Categories: "+str(dtf[col].nunique())
         else:
-            info = info+" | Min-Max: "+str(int(dtf[col].min()))+"-"+str(int(dtf[col].max()))
+            info = info+" | Min-Max: "+"({x})-({y})".format(x=str(int(dtf[col].min())), y=str(int(dtf[col].max())))
         if dtf[col].nunique() == len_dtf:
             info = info+" | Possible PK"
         print(info)
@@ -1066,8 +1072,6 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=Tr
             if t not in thres_in_plot:
                 ax[1].annotate(t, xy=(fpr[i],tpr[i]), xytext=(fpr[i],tpr[i]), textcoords='offset points', ha='left', va='bottom')
                 thres_in_plot.append(t)
-            else:
-                next
     
     ## Plot precision-recall curve
     precisions, recalls, thresholds = metrics.precision_recall_curve(y_test, predicted_prob)
@@ -1085,8 +1089,7 @@ def evaluate_classif_model(y_test, predicted, predicted_prob, show_thresholds=Tr
             if t not in thres_in_plot:
                 ax[2].annotate(np.round(t,1), xy=(recalls[i],precisions[i]), xytext=(recalls[i],precisions[i]), textcoords='offset points', ha='right', va='bottom')
                 thres_in_plot.append(t)
-            else:
-                next
+
     plt.show()
      
 
@@ -1510,7 +1513,7 @@ def visualize_nn(model, titles=False, figsize=(10,8)):
 
 
 ###############################################################################
-#                         UNSUPERVISED                                        #
+#                       CLUSTERING (UNSUPERVISED)                             #
 ###############################################################################
 '''
 Find the best K-Means with the within-cluster sum of squares (Elbow method).
@@ -1547,20 +1550,41 @@ def find_best_k(X, max_k=10, plot=True):
 
 
 '''
-Plot clustering:
-    - for K-Means it plots also theoretical centroids
-    - for Affinity Propagation the centroids are real observations.  
+Plot clustering in 2D.
+:paramater
+    :param dtf - dataframe with x1, x2, clusters, centroids
+    :param x1: str - column name
+    :param x2: str - column name
+    :param th_centroids: array - (kmeans) model.cluster_centers_, if None deosn't plot them
 '''
-def utils_plot_clustering(dtf, x1, x2, model, figsize=(10,5)):
+def utils_plot_cluster(dtf, x1, x2, th_centroids=None, figsize=(10,5)):
+    ## plot points and real centroids
     fig, ax = plt.subplots(figsize=figsize)
-    k = len(np.unique(model.labels_))
+    k = dtf["cluster"].nunique()
     sns.scatterplot(x=x1, y=x2, data=dtf, palette=sns.color_palette("bright",k),
                         hue='cluster', size="centroids", size_order=[1,0],
-                        legend="brief", ax=ax).set_title('Clustering')
-    if "KMeans" in str(model):
-        ax.scatter(model.cluster_centers_[:,dtf.columns.tolist().index(x1)], 
-                   model.cluster_centers_[:,dtf.columns.tolist().index(x2)], 
+                        legend="brief", ax=ax).set_title('Clustering (k='+str(k)+')')
+
+    ## plot theoretical centroids
+    if th_centroids is not None:
+        ax.scatter(th_centroids[:,dtf.columns.tolist().index(x1)], 
+                   th_centroids[:,dtf.columns.tolist().index(x2)], 
                    s=50, c='black', marker="x")
+
+    ## plot links from points to real centroids
+    # if plot_links is True:
+    #     centroids_idx = dtf[dtf["centroids"]==1].index
+    #     colors = itertools.cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')
+    #     for k, col in zip(range(k), colors):
+    #         class_members = dtf["cluster"].values == k
+    #         cluster_center = dtf[[x1,x2]].values[centroids_idx[k]]
+    #         plt.plot(dtf[[x1,x2]].values[class_members, 0], dtf[[x1,x2]].values[class_members, 1], col + '.')
+    #         plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col, markeredgecolor='k', markersize=14)
+    #         for x in dtf[[x1,x2]].values[class_members]:
+    #             plt.plot([cluster_center[0], x[0]], 
+    #                      [cluster_center[1], x[1]], 
+    #                      col)
+
     ax.grid(True)
     plt.show()
 
@@ -1569,38 +1593,169 @@ def utils_plot_clustering(dtf, x1, x2, model, figsize=(10,5)):
 '''
 Fit clustering model with K-Means or Affinity Propagation.
 :paramater
-    :param X: array
-    :param X_names: list
+    :param X: dtf
     :param model: sklearn object
-    :param k: num or None - number of clusters, if None Affinity Propagation is used, else K-Means
-    :param lst_2Dplot: list or None - two features to use for a 2D plot
+    :param k: num - number of clusters, if None Affinity Propagation is used, else K-Means
+    :param lst_2Dplot: list - 2 features to use for a 2D plot, if None it plots only if X is 2D
 :return
     model and dtf with clusters
 '''
-def fit_clustering(X, X_names, model=None, k=None, lst_2Dplot=None, figsize=(10,5)):
+def fit_ml_cluster(X, model=None, k=None, lst_2Dplot=None, figsize=(10,5)):
     ## model
     if (model is None) and (k is None):
         model = cluster.AffinityPropagation()
         print("--- k not defined: using Affinity Propagation ---")
     elif (model is None) and (k is not None):
-        model = cluster.KMeans(n_clusters=k, init='k-means++', random_state=0)
+        model = cluster.KMeans(n_clusters=k, init='k-means++')
         print("---", "k="+str(k)+": using k-means ---")
 
     ## clustering
-    dtf = pd.DataFrame(X, columns=X_names)
-    dtf["cluster"] = model.fit_predict(X)
-    k = dtf["cluster"].nunique()
+    dtf_X = X.copy()
+    dtf_X["cluster"] = model.fit_predict(X)
+    k = dtf_X["cluster"].nunique()
     print("--- found", k, "clusters ---")
-    print(dtf.groupby("cluster")["cluster"].count().sort_values(ascending=False))
+    print(dtf_X.groupby("cluster")["cluster"].count().sort_values(ascending=False))
 
     ## find real centroids
-    closest, distances = scipy.cluster.vq.vq(model.cluster_centers_, dtf.drop("cluster", axis=1).values)
-    dtf["centroids"] = 0
+    closest, distances = scipy.cluster.vq.vq(model.cluster_centers_, dtf_X.drop("cluster", axis=1).values)
+    dtf_X["centroids"] = 0
     for i in closest:
-        dtf["centroids"].iloc[i] = 1
+        dtf_X["centroids"].iloc[i] = 1
     
     ## plot
-    if lst_2Dplot is not None:
-        utils_plot_clustering(dtf, x1=lst_2Dplot[0], x2=lst_2Dplot[1], model=model, figsize=figsize)
+    if (lst_2Dplot is not None) or (X.shape[1] == 2):
+        lst_2Dplot = X.columns.tolist() if lst_2Dplot is None else lst_2Dplot
+        th_centroids = model.cluster_centers_ if "KMeans" in str(model) else None
+        utils_plot_cluster(dtf_X, x1=lst_2Dplot[0], x2=lst_2Dplot[1], th_centroids=th_centroids, figsize=figsize)
 
-    return model, dtf
+    return model, dtf_X
+
+
+
+'''
+Fit a Self Organizing Map neural network.
+:paramater
+    :param X: dtf
+    :param model: minisom instance - if None uses a map of 5*sqrt(n) x 5*sqrt(n) neurons
+    :param lst_2Dplot: list - 2 features to use for a 2D plot, if None it plots only if X is 2D
+:return
+    model and dtf with clusters
+'''
+def fit_dl_cluster(X, model=None, epochs=100, lst_2Dplot=None, figsize=(10,5)):
+    ## model
+    model = minisom.MiniSom(x=int(np.sqrt(5*np.sqrt(X.shape[0]))), y=int(np.sqrt(5*np.sqrt(X.shape[0]))), input_len=X.shape[1]) if model is None else model
+    scaler = preprocessing.StandardScaler()
+    X_preprocessed = scaler.fit_transform(X.values)
+    model.train_batch(X_preprocessed, num_iteration=epochs, verbose=False)
+    
+    ## clustering
+    map_shape = (model.get_weights().shape[0], model.get_weights().shape[1])
+    print("--- map shape:", map_shape, "---")
+    dtf_X = X.copy()
+    dtf_X["cluster"] = np.ravel_multi_index(np.array([model.winner(x) for x in X_preprocessed]).T, dims=map_shape)
+    k = dtf_X["cluster"].nunique()
+    print("--- found", k, "clusters ---")
+    print(dtf_X.groupby("cluster")["cluster"].count().sort_values(ascending=False))
+    
+    ## find real centroids
+    cluster_centers = np.array([vec for center in model.get_weights() for vec in center])
+    closest, distances = scipy.cluster.vq.vq(cluster_centers, X_preprocessed)
+    dtf_X["centroids"] = 0
+    for i in closest:
+        dtf_X["centroids"].iloc[i] = 1
+    
+    ## plot
+    if (lst_2Dplot is not None) or (X.shape[1] == 2):
+        lst_2Dplot = X.columns.tolist() if lst_2Dplot is None else lst_2Dplot
+        utils_plot_cluster(dtf_X, x1=lst_2Dplot[0], x2=lst_2Dplot[1], th_centroids=scaler.inverse_transform(cluster_centers), figsize=figsize)
+
+    return model, dtf_X
+
+
+
+###############################################################################
+#                         GEOSPATIAL ANALYSIS                                 #
+###############################################################################
+'''
+Get api to OpenStreetMap to find [latitude, longitude] 
+'''
+def get_geocoder(address):
+    locator = geopy.geocoders.Nominatim(user_agent="myGeocoder")
+    location = locator.geocode(address)
+    print(location)
+    return [location.latitude, location.longitude]
+
+
+
+'''
+Creates a map with folium.
+:parameter
+    :param dtf: pandas
+    :param x: str - column with latitude
+    :param y: str - column with longitude
+    :param starting_point: list - coordinates (ex. [45.0703, 7.6869])
+    :param tiles: str - "cartodbpositron", "OpenStreetMap", "Stamen Terrain", "Stamen Toner"
+    :param popup: str - column with text to popup if clicked, if None there is no popup
+    :param size: str - column with size variable, if None takes size=5
+    :param color: str - column with color variable, if None takes default color
+    :param lst_colors: list - list with multiple colors to use if color column is not None, if not given it generates randomly
+    :param marker: str - column with marker variable, takes up to 7 unique values
+:return
+    map object to display
+'''
+def plot_map(dtf, x, y, start, zoom=12, tiles="cartodbpositron", popup=None, size=None, color=None, legend=False, lst_colors=None, marker=None):
+    data = dtf.copy()
+
+    ## create columns for plotting
+    if color is not None:
+        lst_elements = sorted(list(dtf[color].unique()))
+        lst_colors = ['#%06X' % np.random.randint(0, 0xFFFFFF) for i in range(len(lst_elements))] if lst_colors is None else lst_colors
+        data["color"] = data[color].apply(lambda x: lst_colors[lst_elements.index(x)])
+
+    if size is not None:
+        scaler = preprocessing.MinMaxScaler(feature_range=(3,15))
+        data["size"] = scaler.fit_transform(data[size].values.reshape(-1,1)).reshape(-1)
+
+    ## map
+    map_ = folium.Map(location=start, tiles=tiles, zoom_start=zoom)
+
+    if (size is not None) and (color is None): 
+        data.apply(lambda row: folium.CircleMarker(location=[row[x],row[y]], popup=row[popup],
+                                                   color='#3186cc', fill=True, radius=row["size"]).add_to(map_), axis=1)
+    elif (size is None) and (color is not None):
+        data.apply(lambda row: folium.CircleMarker(location=[row[x],row[y]], popup=row[popup],
+                                                   color=row["color"], fill=True, radius=5).add_to(map_), axis=1)
+    elif (size is not None) and (color is not None):
+        data.apply(lambda row: folium.CircleMarker(location=[row[x],row[y]], popup=row[popup],
+                                                   color=row["color"], fill=True, radius=row["size"]).add_to(map_), axis=1)
+    else:
+        data.apply(lambda row: folium.CircleMarker(location=[row[x],row[y]], popup=row[popup],
+                                                   color='#3186cc', fill=True, radius=5).add_to(map_), axis=1)
+    
+    ## legend
+    if (color is not None) and (legend is True):
+        legend_html = """<div style="position:fixed; bottom:10px; left:10px; border:2px solid black; z-index:9999; font-size:14px;">
+        &nbsp;<b>"""+color+""":</b><br>"""
+        for i in lst_elements:
+            legend_html = legend_html+"""&nbsp;<i class="fa fa-circle fa-1x" style="color:"""+lst_colors[lst_elements.index(i)]+"""
+            "></i>&nbsp;"""+str(i)+"""<br>"""
+        legend_html = legend_html+"""</div>"""
+        map_.get_root().html.add_child(folium.Element(legend_html))
+    
+    ## add marker
+    if marker is not None:
+        lst_elements = sorted(list(dtf[marker].unique()))
+        lst_colors = ["black","red","blue","green","pink","orange","gray"]  #7
+        ### too many values, can't mark
+        if len(lst_elements) > len(lst_colors):
+            raise Exception("marker has uniques > "+str(len(lst_colors)))
+        ### binary case (1/0): mark only 1s
+        elif len(lst_elements) == 2:
+            data[data[marker]==lst_elements[1]].apply(lambda row: folium.Marker(location=[row[x],row[y]], popup=row[marker], draggable=False, 
+                                                                                icon=folium.Icon(color=lst_colors[0])).add_to(map_), axis=1) 
+        ### normal case: mark all values
+        else:
+            for i in lst_elements:
+                data[data[marker]==i].apply(lambda row: folium.Marker(location=[row[x],row[y]], popup=row[marker], draggable=False, 
+                                                                      icon=folium.Icon(color=lst_colors[lst_elements.index(i)])).add_to(map_), axis=1)
+    return map_

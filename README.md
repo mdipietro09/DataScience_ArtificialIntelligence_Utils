@@ -1,7 +1,7 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
-Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* ( 
+Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* (
 links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)).
 
 
@@ -40,6 +40,12 @@ links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)
 	* Explainability 
 
 		<img src="_docs/regr_explain.PNG" width="400" height="200">
+
+
+- <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
+	* Model
+
+		<img src="_docs/geo_cluster.gif" width="450" height="250">
 
 ------
 
