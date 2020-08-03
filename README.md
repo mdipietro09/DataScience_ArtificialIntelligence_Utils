@@ -45,7 +45,7 @@ links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)
 - <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
 	* Model
 
-		<img src="_docs/geo_cluster.gif" width="450" height="250">
+		<img src="_docs/geo_cluster.gif" width="400" height="250">
 
 ------
 

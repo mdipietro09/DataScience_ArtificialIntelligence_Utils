@@ -1734,11 +1734,9 @@ def plot_map(dtf, x, y, start, zoom=12, tiles="cartodbpositron", popup=None, siz
     
     ## legend
     if (color is not None) and (legend is True):
-        legend_html = """<div style="position:fixed; bottom:10px; left:10px; border:2px solid black; z-index:9999; font-size:14px;">
-        &nbsp;<b>"""+color+""":</b><br>"""
+        legend_html = """<div style="position:fixed; bottom:10px; left:10px; border:2px solid black; z-index:9999; font-size:14px;">&nbsp;<b>"""+color+""":</b><br>"""
         for i in lst_elements:
-            legend_html = legend_html+"""&nbsp;<i class="fa fa-circle fa-1x" style="color:"""+lst_colors[lst_elements.index(i)]+"""
-            "></i>&nbsp;"""+str(i)+"""<br>"""
+            legend_html = legend_html+"""&nbsp;<i class="fa fa-circle fa-1x" style="color:"""+lst_colors[lst_elements.index(i)]+""""></i>&nbsp;"""+str(i)+"""<br>"""
         legend_html = legend_html+"""</div>"""
         map_.get_root().html.add_child(folium.Element(legend_html))
     
