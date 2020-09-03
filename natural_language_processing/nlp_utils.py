@@ -828,6 +828,69 @@ def fit_w2v(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], min_count
 
 
 '''
+Use Word2Vec to get a list of similar words of a given input words list
+:parameter
+    :param lst_words: list - input words
+    :param top: num - number of words to return
+    :param nlp: gensim model
+:return
+    list with input words + output words
+'''
+def get_similar_words(lst_words, top, nlp=None):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    lst_out = lst_words
+    for tupla in nlp.most_similar(lst_words, topn=top):
+        lst_out.append(tupla[0])
+    return list(set(lst_out))
+
+
+
+'''
+Creates a feature matrix (num_docs x vector_size)
+:parameter
+    :param x: string or list
+    :param nlp: gensim model
+    :param value_na: value to return when the word is not in vocabulary
+:return
+    vector or matrix 
+'''
+def embedding_w2v(x, nlp=None, value_na=0):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    null_vec = [value_na]*nlp.vector_size
+    
+    ## single word --> vec (size,)
+    if (type(x) is str) and (len(x.split()) == 1):
+        X = nlp[x] if x in nlp.vocab.keys() else null_vec
+    
+    ## list of words --> matrix (n, size)
+    elif (type(x) is list) and (type(x[0]) is str) and (len(x[0].split()) == 1):
+        X = np.array([nlp[word] if word in nlp.vocab.keys() else null_vec for word in x])
+    
+    ## list of lists of words --> matrix (n mean vectors, size)
+    elif (type(x) is list) and (type(x[0]) is list):
+        lst_mean_vecs = []
+        for lst in x:
+            lst_mean_vecs.append(np.array([nlp[word] if word in nlp.vocab.keys() else null_vec for word in lst]
+                                          ).mean(0))
+        X = np.array(lst_mean_vecs)
+    
+    ## single text --> matrix (n words, size)
+    elif (type(x) is str) and (len(x.split()) > 1):
+        X = np.array([nlp[word] if word in nlp.vocab.keys() else null_vec for word in x.split()])
+    
+    ## list of texts --> matrix (n mean vectors, size)
+    else:
+        lst_mean_vecs = []
+        for txt in x:
+            lst_mean_vecs.append(np.array([nlp[word] if word in nlp.vocab.keys() else null_vec for word in txt.split()]
+                                          ).mean(0))
+        X = np.array(lst_mean_vecs)
+
+    return X
+
+
+
+'''
 Plot words in vector space (2d or 3d).
 :parameter
     :param lst_words: list - ["donald trump","china", ...]. If None, it plots the whole vocabulary
@@ -1106,7 +1169,7 @@ def explainer_shap(model, X_train, X_instance, dic_vocabulary, class_names, top=
 
 
 ###############################################################################
-#                W2V CLUSTERING / TOPIC MODELING                              #
+#                        TOPIC MODELING                                       #
 ###############################################################################
 '''
 Clusters a Word2Vec vocabulary with nltk Kmeans using cosine similarity.
@@ -1242,122 +1305,10 @@ def plot_w2v_cluster(dic_words=None, nlp=None, plot_type="2d", annotate=True, fi
 
 
 ###############################################################################
-#                        WORD2VEC (SIMILARITY)                                #
-###############################################################################
-'''
-Compute cosine similarity between 2 words or 2 vectors.
-'''
-def similarity_w2v(a, b, nlp=None):
-    if type(a) is str and type(b) is str:
-        cosine_sim = nlp.similarity(a,b)
-    else:
-        a = a.reshape(1,-1) if len(a.shape) == 1 else a
-        b = b.reshape(1,-1) if len(b.shape) == 1 else b
-        cosine_sim = metrics.pairwise.cosine_similarity(a,b)[0][0]
-       #cosine_sim = np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
-    return cosine_sim
-
-
-
-'''
-Use Word2Vec to get a list of similar words of a given input words list
-:parameter
-    :param lst_words: list - input words
-    :param top: num - number of words to return
-    :param nlp: gensim model
-:return
-    list with input words + output words
-'''
-def get_similar_words(lst_words, top, nlp=None):
-    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    lst_out = lst_words
-    for tupla in nlp.most_similar(lst_words, topn=top):
-        lst_out.append(tupla[0])
-    return list(set(lst_out))
-
-
-
-'''
-Creates a feature matrix (num_docs x vector_size)
-'''
-def utils_text_embeddings(corpus, nlp, value_na=0):
-    lst_X = []
-    for text in corpus:
-        lst_word_vecs = [nlp[word] if word in nlp.vocab.keys() else [value_na]*nlp.vector_size 
-                         for word in text.split()]
-        lst_X.append(np.mean( np.array(lst_word_vecs), axis=0 )) 
-    X = np.stack(lst_X, axis=0)
-    return X
-
-
-
-'''
-Fit a PCA to model the general component common among the whole corpus.
-    :param corpus: list - dtf["text"]
-    :param nlp: gensim model
-:return
-    sklearn pca object
-'''
-def fit_pca_w2v(corpus, nlp):
-    ## corpus embedding
-    X = utils_text_embeddings(corpus, nlp, value_na=0)
-    print("X shape:", X.shape)
-    ## fit pca
-    model = decomposition.PCA(n_components=nlp.vector_size)
-    pca = model.fit_transform(X)
-    print("pca shape:", pca.shape)
-    return pca
-
-
-
-'''
-Clustering of text to specifi classes (Unsupervised Classification by similarity).
-:parameter
-    :param corpus: list - dtf["text"]
-    :param dic_clusters: dic of lists of strings - {'finance':['market','bonds','equity'], 'esg':['environment','green_economy','sustainability']}
-:return
-    dic_clusters_sim = {'finance':0.7, 'esg':0.5}
-'''
-def predict_similarity_w2v(corpus, dic_clusters, nlp=None, pca=None):
-    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    print("--- embedding X and y ---")
-    
-    ## clusters embedding
-    dic_y, cluster_names = {}, []
-    for name, lst_keywords in dic_clusters.items():
-        lst_word_vecs = [nlp[word] if word in nlp.vocab.keys() else [0]*nlp.vector_size 
-                         for word in lst_keywords]
-        dic_y.update({name:np.mean( np.array(lst_word_vecs), axis=0)})
-        cluster_names.append(name)
-        print(name, "shape:", dic_y[name].shape)
-    
-    ## text embedding
-    X = utils_text_embeddings(corpus, nlp, value_na=0)
-    print("X shape:", X.shape)
-    
-    ## remove pca
-    if pca is not None:
-        print("--- removing general component ---")
-        ### from y
-        for name, y in dic_y.items():
-            dic_y[name] = y - y.dot(pca.transpose()).dot(pca)
-        ### from X
-        X = X - X.dot(pca.transpose()).dot(pca)
-        
-    ## compute similarity
-    print("--- computing similarity ---")
-    predicted_prob = np.array([metrics.pairwise.cosine_similarity(X,y.reshape(1,-1)).T.tolist()[0] for y in dic_y.values()]).T
-    predicted_prob = np.array([predicted_prob[i]/sum(predicted_prob[i]) if sum(predicted_prob[i])>0 else [1,0,0] for i in range(len(predicted_prob))]) #rescale so they sum=1
-    predicted = [cluster_names[np.argmax(pred)] for pred in predicted_prob]
-    return predicted_prob, predicted
-
-
-
-###############################################################################
 #                      BERT (TRANSFORMERS LANGUAGE MODEL)                     #
 ###############################################################################
 '''
-Word embedding with Bert.
+Word embedding with Bert (equivalent to nlp["word"]).
 :parameter
     :param txt: string 
     :param tokenizer: transformers tokenizer
@@ -1365,15 +1316,55 @@ Word embedding with Bert.
 :return
     tensor sentences x words x vector (1x3x768) 
 '''
-def embedding_bert(txt, tokenizer=None, nlp=None):
+def utils_bert_hidden_layer(txt, tokenizer, nlp, log=False):
+    idx = tokenizer.encode(txt)
+    if log is True:
+        print("tokens:", tokenizer.convert_ids_to_tokens(idx))
+        print("ids   :", tokenizer.encode(txt))
+    idx = np.array(idx)[None,:]  
+    embedding = nlp(idx)  #<-- this returns the hidden layer
+    X = np.array(embedding[0][0][1:-1])
+    return X
+
+
+
+'''
+Creates a feature matrix (num_docs x vector_size)
+:parameter
+    :param x: string or list
+    :param tokenizer: transformers tokenizer
+    :param nlp: transformers bert
+    :param log: bool - print tokens
+:return
+    vector or matrix 
+'''
+def embedding_bert(x, tokenizer=None, nlp=None, log=False):
     tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased') if tokenizer is None else tokenizer
     nlp = transformers.TFBertModel.from_pretrained('bert-base-uncased') if nlp is None else nlp
-    idx = tokenizer.encode(txt)
-    print("tokens:", tokenizer.convert_ids_to_tokens(idx))
-    print("ids   :", tokenizer.encode(txt))
-    idx = np.array(idx)[None,:]  
-    embedding = nlp(idx)  #<-- this returns the hidden layer  
-    return embedding[0]
+    
+    ## single word --> vec (size,)
+    if (type(x) is str) and (len(x.split()) == 1):
+        X = utils_bert_hidden_layer(x, tokenizer, nlp, log).reshape(-1)
+    
+    ## list of words --> matrix (n, size)
+    elif (type(x) is list) and (type(x[0]) is str) and (len(x[0].split()) == 1):
+        X = utils_bert_hidden_layer(x, tokenizer, nlp, log)
+    
+    ## list of lists of words --> matrix (n mean vectors, size)
+    elif (type(x) is list) and (type(x[0]) is list):
+        lst_mean_vecs = [utils_bert_hidden_layer(lst, tokenizer, nlp, log).mean(0) for lst in x]
+        X = np.array(lst_mean_vecs)
+    
+    ## single text --> matrix (n words, size)
+    elif (type(x) is str) and (len(x.split()) > 1):
+        X = utils_bert_hidden_layer(x, tokenizer, nlp, log)
+        
+    ## list of texts --> matrix (n mean vectors, size)
+    else:
+        lst_mean_vecs = [utils_bert_hidden_layer(txt, tokenizer, nlp, log).mean(0) for txt in x]
+        X = np.array(lst_mean_vecs)
+        
+    return X
 
 
 
@@ -1495,6 +1486,128 @@ def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=Non
     predicted_prob = model.predict(X_test)
     predicted = [dic_y_mapping[np.argmax(pred)] for pred in predicted_prob] if encode_y is True else [np.argmax(pred)]
     return training.model, predicted_prob, predicted
+
+
+
+###############################################################################
+#               UNSEPERVISED CLASSIFICATION BY SIMILARITY                     #
+###############################################################################
+'''
+Compute cosine similarity between 2 words or 2 vectors/matrices: cosine_sim = matrix (rows_a x rows_b)
+'''
+def utils_cosine_sim(a, b, nlp=None):
+    ## word vs word = score
+    if (type(a) is str) or (type(b) is str):
+        nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+        cosine_sim = nlp.similarity(a,b)
+        
+    else:
+        ## vector vs vector = score
+        if (len(a.shape) == 1) and (len(a.shape) == 1):
+            a = a.reshape(1,-1)
+            b = b.reshape(1,-1)
+            cosine_sim = metrics.pairwise.cosine_similarity(a, b)[0][0]  #np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
+        
+        ## matrix vs matrix = matrix (rows_a x rows_b)
+        else:
+            a = a.reshape(1,-1) if len(a.shape) == 1 else a
+            b = b.reshape(1,-1) if len(b.shape) == 1 else b
+            cosine_sim = metrics.pairwise.cosine_similarity(a, b)
+    return cosine_sim
+
+
+
+'''
+Clustering of text to specific classes (Unsupervised Classification by similarity).
+:parameter
+    :param corpus: list - dtf["text"]
+    :param dic_y: dic label:mean_vector - {'finance':mean_vec, 'esg':mean_vec}
+:return
+    predicted_prob, predicted
+'''
+def predict_similarity_classif(X, dic_y):
+    predicted_prob = np.array([utils_cosine_sim(X, y).T.tolist()[0] for y in dic_y.values()]).T
+    labels = list(dic_y.keys())
+    
+    ## adjust and rescale
+    for i in range(len(predicted_prob)):
+        ### assign randomly if there is no similarity
+        if sum(predicted_prob[i]) == 0:
+            predicted_prob[i] = [0]*len(labels)
+            predicted_prob[i][np.random.choice(range(len(labels)))] = 1
+        ### rescale so they sum=1
+        predicted_prob[i] = predicted_prob[i] / sum(predicted_prob[i])
+    
+    predicted = [labels[np.argmax(pred)] for pred in predicted_prob]
+    return predicted_prob, predicted
+
+
+
+'''
+Plot a text instance into a 2d vector space and compute similarity.
+:parameter
+    :param tokenizer: transformers tokenizer
+    :param nlp: transformers bert
+    :param dic_clusters: dict - dict - {0:lst_words, 1:lst_words, ...}
+    :param txt_instance: string - raw text
+    :param token_level: bool - if True the text is broken down into tokens otherwise the mean vector is taken
+    :param top: num - top similarity to display
+'''
+def explainer_similarity_classif(tokenizer, nlp, dic_clusters, txt_instance, token_level=False, top=5, figsize=(20,10)):
+    ## create embedding Matrix
+    y = np.concatenate([embedding_bert(v, tokenizer, nlp) for v in dic_clusters.values()])
+    X = embedding_bert(txt_instance, tokenizer, nlp) if token_level is True else embedding_bert(txt_instance, tokenizer, nlp).mean(0).reshape(1,-1)
+    M = np.concatenate([y,X])
+    
+    ## pca
+    pca = manifold.TSNE(perplexity=40, n_components=2, init='pca')
+    M = pca.fit_transform(M)
+    y, X = M[:len(y)], M[len(y):]
+    
+    ## create dtf clusters
+    dtf = pd.DataFrame()
+    for k,v in dic_clusters.items():
+        size = len(dtf) + len(v)
+        dtf_group = pd.DataFrame(y[len(dtf):size], columns=["x","y"], index=v)
+        dtf_group["cluster"] = k
+        dtf = dtf.append(dtf_group)
+        
+    ## plot clusters
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.scatterplot(data=dtf, x="x", y="y", hue="cluster", ax=ax)
+    ax.legend().texts[0].set_text(None)
+    ax.set(xlabel=None, ylabel=None, xticks=[], xticklabels=[], yticks=[], yticklabels=[])
+    for i in range(len(dtf)):
+        ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+    
+    ## add txt_instance
+    if token_level is True:
+        tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(txt_instance))[1:-1]
+        dtf = pd.DataFrame(X, columns=["x","y"], index=tokens)
+        dtf = dtf[~dtf.index.str.contains("#")]
+        dtf = dtf[dtf.index.str.len() > 1]
+        X = dtf.values
+        ax.scatter(x=dtf["x"], y=dtf["y"], c="red")
+        for i in range(len(dtf)):
+            ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+    else:
+        ax.scatter(x=X[0][0], y=X[0][1], c="red", linewidth=10)
+        ax.annotate("x", xy=(X[0][0],X[0][1]), ha='center', va='center', fontsize=25)
+    
+    ## calculate similarity
+    sim_matrix = utils_cosine_sim(X,y) 
+
+    ## add top similarity
+    for row in range(sim_matrix.shape[0]):
+        ### sorted {keyword:score}
+        dic_sim = {n:sim_matrix[row][n] for n in range(sim_matrix.shape[1])}
+        dic_sim = {k:v for k,v in sorted(dic_sim.items(), key=lambda item:item[1], reverse=True)}
+        ### plot lines
+        for k in dict(list(dic_sim.items())[0:top]).keys():
+            p1 = [X[row][0], X[row][1]]
+            p2 = [y[k][0], y[k][1]]
+            ax.plot([p1[0],p2[0]], [p1[1],p2[1]], c="red", alpha=0.5)
+    plt.show()
 
 
 
