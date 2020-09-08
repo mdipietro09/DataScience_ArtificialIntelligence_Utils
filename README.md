@@ -1,8 +1,8 @@
 # Data Science & Artifical Intelligence utils functions in Python
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
-Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* (
-links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)).
+Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* \
+(links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)).
 
 
 

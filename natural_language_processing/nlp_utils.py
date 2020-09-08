@@ -22,7 +22,7 @@ import spacy
 import collections
 
 ## for machine learning
-from sklearn import preprocessing, model_selection, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline, decomposition
+from sklearn import preprocessing, model_selection, feature_extraction, feature_selection, metrics, manifold, naive_bayes, pipeline
 
 ## for deep learning
 from tensorflow.keras import models, layers, preprocessing as kprocessing
@@ -828,24 +828,6 @@ def fit_w2v(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], min_count
 
 
 '''
-Use Word2Vec to get a list of similar words of a given input words list
-:parameter
-    :param lst_words: list - input words
-    :param top: num - number of words to return
-    :param nlp: gensim model
-:return
-    list with input words + output words
-'''
-def get_similar_words(lst_words, top, nlp=None):
-    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
-    lst_out = lst_words
-    for tupla in nlp.most_similar(lst_words, topn=top):
-        lst_out.append(tupla[0])
-    return list(set(lst_out))
-
-
-
-'''
 Creates a feature matrix (num_docs x vector_size)
 :parameter
     :param x: string or list
@@ -1172,6 +1154,24 @@ def explainer_shap(model, X_train, X_instance, dic_vocabulary, class_names, top=
 #                        TOPIC MODELING                                       #
 ###############################################################################
 '''
+Use Word2Vec to get a list of similar words of a given input words list
+:parameter
+    :param lst_words: list - input words
+    :param top: num - number of words to return
+    :param nlp: gensim model
+:return
+    list with input words + output words
+'''
+def get_similar_words(lst_words, top, nlp=None):
+    nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
+    lst_out = lst_words
+    for tupla in nlp.most_similar(lst_words, topn=top):
+        lst_out.append(tupla[0])
+    return list(set(lst_out))
+
+
+
+'''
 Clusters a Word2Vec vocabulary with nltk Kmeans using cosine similarity.
 :parameter
     :param corpus: list - dtf["text"]
@@ -1316,13 +1316,13 @@ Word embedding with Bert (equivalent to nlp["word"]).
 :return
     tensor sentences x words x vector (1x3x768) 
 '''
-def utils_bert_hidden_layer(txt, tokenizer, nlp, log=False):
+def utils_bert_embedding(txt, tokenizer, nlp, log=False):
     idx = tokenizer.encode(txt)
     if log is True:
         print("tokens:", tokenizer.convert_ids_to_tokens(idx))
         print("ids   :", tokenizer.encode(txt))
     idx = np.array(idx)[None,:]  
-    embedding = nlp(idx)  #<-- this returns the hidden layer
+    embedding = nlp(idx)
     X = np.array(embedding[0][0][1:-1])
     return X
 
@@ -1344,26 +1344,25 @@ def embedding_bert(x, tokenizer=None, nlp=None, log=False):
     
     ## single word --> vec (size,)
     if (type(x) is str) and (len(x.split()) == 1):
-        X = utils_bert_hidden_layer(x, tokenizer, nlp, log).reshape(-1)
+        X = utils_bert_embedding(x, tokenizer, nlp, log).reshape(-1)
     
     ## list of words --> matrix (n, size)
     elif (type(x) is list) and (type(x[0]) is str) and (len(x[0].split()) == 1):
-        X = utils_bert_hidden_layer(x, tokenizer, nlp, log)
+        X = utils_bert_embedding(x, tokenizer, nlp, log)
     
     ## list of lists of words --> matrix (n mean vectors, size)
     elif (type(x) is list) and (type(x[0]) is list):
-        lst_mean_vecs = [utils_bert_hidden_layer(lst, tokenizer, nlp, log).mean(0) for lst in x]
+        lst_mean_vecs = [utils_bert_embedding(lst, tokenizer, nlp, log).mean(0) for lst in x]
         X = np.array(lst_mean_vecs)
     
     ## single text --> matrix (n words, size)
     elif (type(x) is str) and (len(x.split()) > 1):
-        X = utils_bert_hidden_layer(x, tokenizer, nlp, log)
+        X = utils_bert_embedding(x, tokenizer, nlp, log)
         
     ## list of texts --> matrix (n mean vectors, size)
     else:
-        lst_mean_vecs = [utils_bert_hidden_layer(txt, tokenizer, nlp, log).mean(0) for txt in x]
+        lst_mean_vecs = [utils_bert_embedding(txt, tokenizer, nlp, log).mean(0) for txt in x]
         X = np.array(lst_mean_vecs)
-        
     return X
 
 
