@@ -25,7 +25,7 @@ from fbprophet import Prophet
 pd.plotting.register_matplotlib_converters()
 
 ## for parametric fit
-from scipy import optimize
+from scipy import optimize, stats
 
 
 
@@ -47,14 +47,8 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     if plot_ma:
         plt.plot(rolling_mean, 'g', label='MA'+str(window), color="red")
     if plot_intervals:
-        #mean_absolute_error = np.mean(np.abs((ts[window:] - rolling_mean[window:]) / ts[window:])) * 100
-        #deviation = np.std(ts[window:] - rolling_mean[window:])
-        #lower_bound = rolling_mean - (mean_absolute_error + 1.96 * deviation)
-        #upper_bound = rolling_mean + (mean_absolute_error + 1.96 * deviation)
         lower_bound = rolling_mean - (1.96 * rolling_std)
         upper_bound = rolling_mean + (1.96 * rolling_std)
-        #plt.plot(upper_bound, 'r--', label='Upper bound / Lower bound')
-        #plt.plot(lower_bound, 'r--')
         plt.fill_between(x=ts.index, y1=lower_bound, y2=upper_bound, color='lightskyblue', alpha=0.4)
     plt.legend(loc='best')
     plt.grid(True)
@@ -265,41 +259,69 @@ def split_train_test(ts, exog=None, test=0.20, plot=True, figsize=(15,5)):
         return ts_train, ts_test, exog_train, exog_test
     else:
         return ts_train, ts_test
-    
+
+
+
+'''
+Compute the confidence interval for predictions:
+    [y[t+h] +- (c*σ*√h)]
+:parameter
+    :param lst_values: list or array
+    :param error_std: σ (standard dev of residuals)
+    :param conf: num - confidence level (90%, 95%, 99%)
+:return
+    array with 2 columns (upper and lower bounds)
+'''
+def utils_conf_int(lst_values, error_std, conf=0.95):
+    lst_values = list(lst_values) if type(lst_values) != list else lst_values
+    c = round( stats.norm.ppf(1-(1-conf)/2), 2)
+    lst_ci = []
+    for x in lst_values:
+        lst_x = lst_values[:lst_values.index(x)+1]
+        h = len(lst_x)
+        ci = [x - (c*error_std*np.sqrt(h)), x + (c*error_std*np.sqrt(h))]
+        lst_ci.append(ci)
+    return np.array(lst_ci)
+
 
 
 '''
 Evaluation metrics for predictions.
 :parameter
-    :param dtf: DataFrame with columns raw values, fitted training values, predicted test values
+    :param dtf: DataFrame with columns "ts", "model", "forecast", and "lower"/"upper" (if available)
 :return
-    dataframe with raw ts and forecast
+    dtf with columns "ts", "model", "residuals", "lower", "forecast", "upper", "error"
 '''
-def utils_evaluate_forecast(dtf, title, plot=True, figsize=(20,13)):
+def utils_evaluate_ts_model(dtf, conf=0.95, title=None, plot=True, figsize=(20,13)):
     try:
-        ## residuals
+        ## residuals from fitting
+        ### add column
         dtf["residuals"] = dtf["ts"] - dtf["model"]
+        ### kpi
+        residuals_mean = dtf["residuals"].mean()
+        residuals_std = dtf["residuals"].std()
+
+        ## forecasting error
+        ### add column
         dtf["error"] = dtf["ts"] - dtf["forecast"]
         dtf["error_pct"] = dtf["error"] / dtf["ts"]
-        
-        ## kpi
-        residuals_mean = dtf["residuals"].mean()  #errore medio nel training
-        residuals_std = dtf["residuals"].std()    #standard dev dell'errore nel training
-        error_mean = dtf["error"].mean()   #errore medio nel test
-        error_std = dtf["error"].std()     #standard dev dell'errore nel test
+        ### kpi
+        error_mean = dtf["error"].mean() 
+        error_std = dtf["error"].std() 
         mae = dtf["error"].apply(lambda x: np.abs(x)).mean()  #mean absolute error
         mape = dtf["error_pct"].apply(lambda x: np.abs(x)).mean()  #mean absolute error %
-        mse = dtf["error"].apply(lambda x: x**2).mean() # mean squared error
+        mse = dtf["error"].apply(lambda x: x**2).mean()  #mean squared error
         rmse = np.sqrt(mse)  #root mean squared error
         
-        ## intervals
-        dtf["conf_int_low"] = dtf["forecast"] - 1.96*residuals_std
-        dtf["conf_int_up"] = dtf["forecast"] + 1.96*residuals_std
-        dtf["pred_int_low"] = dtf["forecast"] - 1.96*error_std
-        dtf["pred_int_up"] = dtf["forecast"] + 1.96*error_std
+        ## interval
+        if "upper" not in dtf.columns:
+            print("--- computing confidence interval ---")
+            dtf["lower"], dtf["upper"] = [np.nan, np.nan]
+            dtf.loc[dtf["forecast"].notnull(), ["lower","upper"]] = utils_conf_int(
+                dtf[dtf["forecast"].notnull()]["forecast"], residuals_std, conf)
         
         ## plot
-        if plot==True:
+        if plot is True:
             fig = plt.figure(figsize=figsize)
             fig.suptitle(title, fontsize=20)   
             ax1 = fig.add_subplot(2,2, 1)
@@ -311,8 +333,7 @@ def utils_evaluate_forecast(dtf, title, plot=True, figsize=(20,13)):
             ax1.set(xlabel=None)
             ### test
             dtf[pd.isnull(dtf["model"])][["ts","forecast"]].plot(color=["black","red"], title="Forecast", grid=True, ax=ax2)
-            ax2.fill_between(x=dtf.index, y1=dtf['pred_int_low'], y2=dtf['pred_int_up'], color='b', alpha=0.2)
-            ax2.fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3)     
+            ax2.fill_between(x=dtf.index, y1=dtf['lower'], y2=dtf['upper'], color='b', alpha=0.2)
             ax2.set(xlabel=None)
             ### residuals
             dtf[["residuals","error"]].plot(ax=ax3, color=["green","red"], title="Residuals", grid=True)
@@ -325,8 +346,7 @@ def utils_evaluate_forecast(dtf, title, plot=True, figsize=(20,13)):
             print("Test --> Error mean:", np.round(error_mean), " | std:", np.round(error_std),
                   " | mae:",np.round(mae), " | mape:",np.round(mape*100), "%  | mse:",np.round(mse), " | rmse:",np.round(rmse))
         
-        return dtf[["ts","model","residuals","conf_int_low","conf_int_up", 
-                    "forecast","error","pred_int_low","pred_int_up"]]
+        return dtf[["ts", "model", "residuals", "lower", "forecast", "upper", "error"]]
     
     except Exception as e:
         print("--- got error ---")
@@ -354,28 +374,44 @@ def utils_generate_indexdate(start, end=None, n=None, freq="D"):
 
 
 '''
-Plot unknown future forecast.
+Plot unknown future forecast and produce conf_int with residual_std and pred_int if an error_std is given.
+:parameter
+    :param dtf: DataFrame with columns "ts", "model", "forecast", and "lower"/"upper" (if available)
+    :param conf: num - confidence level (90%, 95%, 99%)
+    :param zoom: int - plots the focus on the last zoom days
+:return
+    dtf with columns "ts", "model", "residuals", "lower", "forecast", "upper" (No error)
 '''
-def utils_plot_forecast(dtf, zoom=30, figsize=(15,5)):
-    ## interval
+def utils_add_forecast_int(dtf, conf=0.95, plot=True, zoom=30, figsize=(15,5)):
+    ## residuals from fitting
+    ### add column
     dtf["residuals"] = dtf["ts"] - dtf["model"]
-    dtf["conf_int_low"] = dtf["forecast"] - 1.96*dtf["residuals"].std()
-    dtf["conf_int_up"] = dtf["forecast"] + 1.96*dtf["residuals"].std()
-    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    ### kpi
+    residuals_std = dtf["residuals"].std()
     
-    ## entire series
-    dtf[["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[0], title="History + Future")
-    ax[0].fill_between(x=dtf.index, y1=dtf['conf_int_low'], y2=dtf['conf_int_up'], color='b', alpha=0.3) 
-          
-    ## focus on last
-    first_idx = dtf[pd.notnull(dtf["forecast"])].index[0]
-    first_loc = dtf.index.tolist().index(first_idx)
-    zoom_idx = dtf.index[first_loc-zoom]
-    dtf.loc[zoom_idx:][["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[1], title="Zoom on the last "+str(zoom)+" observations")
-    ax[1].fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['conf_int_low'], 
-                       y2=dtf.loc[zoom_idx:]['conf_int_up'], color='b', alpha=0.3)
-    plt.show()
-    return dtf[["ts","model","residuals","conf_int_low","forecast","conf_int_up"]]
+    ## interval
+    if "upper" not in dtf.columns:
+        print("--- computing confidence interval ---")
+        dtf["lower"], dtf["upper"] = [np.nan, np.nan]
+        dtf.loc[dtf["forecast"].notnull(), ["lower","upper"]] = utils_conf_int(
+            dtf[dtf["forecast"].notnull()]["forecast"], residuals_std, conf)
+
+    ## plot
+    if plot is True:
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+        
+        ### entire series
+        dtf[["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[0], title="History + Future")
+        ax[0].fill_between(x=dtf.index, y1=dtf['lower'], y2=dtf['upper'], color='b', alpha=0.2)
+              
+        ### focus on last
+        first_idx = dtf[pd.notnull(dtf["forecast"])].index[0]
+        first_loc = dtf.index.tolist().index(first_idx)
+        zoom_idx = dtf.index[first_loc-zoom]
+        dtf.loc[zoom_idx:][["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[1], title="Zoom on the last "+str(zoom)+" observations")
+        ax[1].fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['lower'], y2=dtf.loc[zoom_idx:]['upper'], color='b', alpha=0.2)
+        plt.show()
+    return dtf[["ts", "model", "residuals", "lower", "forecast", "upper"]]
 
 
 
@@ -406,8 +442,10 @@ def utils_generate_rw(y0, n, sigma, ymin=None, ymax=None):
 '''
 Simulate Random Walk from params of a given ts: 
     y[t+1] = y[t] + wn~(0,σ)
+:return
+    dtf with columns "ts", "model", "residuals", "lower", "forecast", "upper", "error"
 '''
-def simulate_rw(ts_train, ts_test, figsize=(15,10)):
+def simulate_rw(ts_train, ts_test, conf=0.95, figsize=(15,10)):
     ## simulate train
     diff_ts = ts_train - ts_train.shift(1)
     rw = utils_generate_rw(y0=ts_train[0], n=len(ts_train), sigma=diff_ts.std(), ymin=ts_train.min(), ymax=ts_train.max())
@@ -420,7 +458,7 @@ def simulate_rw(ts_train, ts_test, figsize=(15,10)):
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Random Walk Simulation")
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Random Walk Simulation")
     return dtf
 
 
@@ -433,8 +471,10 @@ Forecast unknown future.
     :param end: string - date to forecast (ex. end="2016-12-31")
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
+:return
+    dtf with columns "ts", "model", "residuals", "lower", "forecast", "upper" (No error)
 '''
-def forecast_rw(ts, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_rw(ts, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
     ## fit
     diff_ts = ts - ts.shift(1)
     sigma = diff_ts.std()
@@ -449,8 +489,8 @@ def forecast_rw(ts, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)
     preds = utils_generate_rw(y0=ts[-1], n=len(index), sigma=sigma, ymin=ts.min(), ymax=ts.max())
     dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
     
-    ## plot
-    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    ## add intervals and plot
+    dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
     return dtf
     
 
@@ -471,7 +511,7 @@ Fits Holt-Winters Exponential Smoothing:
 :return
     dtf with predictons and the model
 '''
-def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, figsize=(15,10)):
+def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, conf=0.95, figsize=(15,10)):
     ## checks
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+str(seasonal)+" Seasonality every "+str(s)+" observations"
     print(check_seasonality)
@@ -488,7 +528,7 @@ def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative"
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Holt-Winters ("+str(alpha)+")")
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Holt-Winters ("+str(alpha)+")")
     return dtf, model
 
 
@@ -506,7 +546,7 @@ Fits SARIMAX (Seasonal ARIMA with External Regressors):
 :return
     dtf with predictons and the model
 '''
-def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_train=None, exog_test=None, figsize=(15,10)):
+def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_train=None, exog_test=None, conf=0.95, figsize=(15,10)):
     ## checks
     check_trend = "Trend parameters: No differencing" if order[1] == 0 else "Trend parameters: d="+str(order[1])
     print(check_trend)
@@ -523,12 +563,16 @@ def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog
     ## test
     dtf_test = ts_test.to_frame(name="ts")
     dtf_test["forecast"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
+
+    ## add conf_int
+    ci = model.get_forecast(len(ts_test)).conf_int(1-conf).values
+    dtf_test["lower"], dtf_test["upper"] = ci[:,0], ci[:,1]
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
     title = "ARIMA "+str(order) if exog_train is None else "ARIMAX "+str(order)
     title = "S"+title+" x "+str(seasonal_order) if np.sum(seasonal_order) > 0 else title
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title=title)
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title=title)
     return dtf, model
 
 
@@ -580,7 +624,7 @@ def fit_garch(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_t
     ## evaluate
     dtf = dtf_train.append(dtf_test)
     title = "GARCH ("+str(order[0])+","+str(order[2])+")" if order[0] != 0 else "ARCH ("+str(order[2])+")"
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title=title)
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title=title)
     return dtf, model
 
 
@@ -595,7 +639,7 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
     ## fit
     model = model.fit()
     dtf = ts.to_frame(name="ts")
@@ -606,11 +650,16 @@ def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figs
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
-    preds = model.forecast(len(index))
-    dtf = dtf.append(preds.to_frame(name="forecast"))
+    preds = model.get_forecast(len(index))
+    dtf_preds = preds.predicted_mean.to_frame(name="forecast")
+
+    ## add conf_int
+    ci = preds.conf_int(1-conf).values
+    dtf_preds["lower"], dtf_preds["upper"] = ci[:,0], ci[:,1]
     
-    ## plot
-    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    ## add intervals and plot
+    dtf = dtf.append(dtf_preds)
+    dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
     return dtf
 
 
@@ -734,7 +783,7 @@ Fit Long short-term memory neural network.
 :return
     generator, scaler 
 '''
-def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
+def fit_lstm(ts_train, ts_test, model, exog=None, s=20, epochs=100, conf=0.95, figsize=(15,5)):
     ## check
     print("Seasonality: using the last", s, "observations to predict the next 1")
     
@@ -751,10 +800,7 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
         
     ## train
     verbose = 0 if epochs > 1 else 1
-    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=100, shuffle=True, verbose=verbose, validation_split=0.3)
-    if epochs > 1:
-        utils_plot_keras_training(training)
-    
+    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = utils_fitted_lstm(ts_train, training.model, scaler, exog)
     dtf_train["model"] = dtf_train["model"].fillna(method='bfill')
@@ -766,7 +812,7 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, figsize=(15,5)):
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="LSTM (memory:"+str(s)+")")
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="LSTM (memory:"+str(s)+")")
     return dtf, training.model
 
 
@@ -781,11 +827,11 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_lstm(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_lstm(ts, model, epochs=100, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
     ## fit
     s = model.input_shape[-1]
     X, y, scaler = utils_preprocess_ts(ts, scaler=None, exog=None, s=s)
-    training = model.fit(x=X, y=y, batch_size=1, epochs=100, shuffle=True, verbose=0, validation_split=0.3)
+    training = model.fit(x=X, y=y, batch_size=1, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     dtf = ts.to_frame(name="ts")
     dtf["model"] = utils_fitted_lstm(ts, training.model, scaler, None)
     dtf["model"] = dtf["model"].fillna(method='bfill')
@@ -797,8 +843,8 @@ def forecast_lstm(ts, model, pred_ahead=None, end=None, freq="D", zoom=30, figsi
     preds = utils_predict_lstm(ts[-s:], training.model, scaler, pred_ahead=len(index), exog=None)
     dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
     
-    ## plot
-    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    ## add intervals and plot
+    dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
     return dtf
 
 
@@ -817,12 +863,12 @@ Fits prophet on Business Data:
 :return
     dtf with predictons and the model
 '''
-def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", figsize=(15,10)):
+def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", conf=0.95, figsize=(15,10)):
     ## setup prophet
     if model is None:
         model = Prophet(growth="linear", changepoints=None, n_changepoints=25, seasonality_mode="multiplicative",
-                yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto",
-                holidays=None)
+                        yearly_seasonality="auto", weekly_seasonality="auto", daily_seasonality="auto",
+                        holidays=None, interval_width=conf)
     if lst_exog != None:
         for regressor in lst_exog:
             model.add_regressor(regressor)
@@ -841,12 +887,14 @@ def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", figsiz
         dtf_prophet.iloc[-len(dtf_test):][lst_exog] = dtf_test[lst_exog].values
     
     dtf_prophet = model.predict(dtf_prophet)
-    dtf_train = dtf_train.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'model', 'y':'ts'}).set_index("ds")
-    dtf_test = dtf_test.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'forecast', 'y':'ts'}).set_index("ds")
+    dtf_train = dtf_train.merge(dtf_prophet[["ds","yhat"]], how="left").rename(
+        columns={'yhat':'model', 'y':'ts'}).set_index("ds")
+    dtf_test = dtf_test.merge(dtf_prophet[["ds","yhat","yhat_lower","yhat_upper"]], how="left").rename(
+        columns={'yhat':'forecast', 'y':'ts', 'yhat_lower':'lower', 'yhat_upper':'upper'}).set_index("ds")
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
-    dtf = utils_evaluate_forecast(dtf, figsize=figsize, title="Prophet")
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Prophet")
     return dtf, model
     
 
@@ -861,7 +909,7 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
     ## fit
     model.fit(dtf)
     
@@ -873,11 +921,12 @@ def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", zoom=30, f
     dtf_prophet = model.predict(dtf_prophet)
     dtf = dtf.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'model', 'y':'ts'}).set_index("ds")
     preds = pd.DataFrame(data=index, columns=["ds"])
-    preds = preds.merge(dtf_prophet[["ds","yhat"]], how="left").rename(columns={'yhat':'forecast'}).set_index("ds")
+    preds = preds.merge(dtf_prophet[["ds","yhat","yhat_lower","yhat_upper"]], how="left").rename(
+        columns={'yhat':'forecast', 'yhat_lower':'lower', 'yhat_upper':'upper'}).set_index("ds")
     dtf = dtf.append(preds)
     
     ## plot
-    dtf = utils_plot_forecast(dtf, zoom=zoom)
+    dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
     return dtf
 
 
@@ -978,3 +1027,9 @@ def forecast_curve(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, f
     ## plot
     utils_plot_parametric(dtf, zoom=zoom)
     return dtf
+
+
+
+###############################################################################
+#                              CLUSTERING                                     #
+###############################################################################
