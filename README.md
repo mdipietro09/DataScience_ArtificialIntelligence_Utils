@@ -42,7 +42,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 		<img src="_docs/regr_explain.PNG" width="400" height="200">
 
 
-- <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
+- <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_clustering.ipynb)**</ins>
 	* Model
 
 		<img src="_docs/geo_cluster.gif" width="400" height="250">
