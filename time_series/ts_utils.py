@@ -5,12 +5,13 @@ import numpy as np
 
 ## for plotting
 import matplotlib.pyplot as plt
+import matplotlib.patches as pltpatches
 
 ## for stationarity test
 import statsmodels.api as sm
 
-## for outliers detection
-from sklearn import preprocessing, svm
+## for outliers detection and models tuning
+from sklearn import preprocessing, svm, model_selection, metrics
 
 ## for autoregressive models
 import pmdarima
@@ -24,8 +25,8 @@ from tensorflow.keras import models, layers, preprocessing as kprocessing
 from fbprophet import Prophet
 pd.plotting.register_matplotlib_converters()
 
-## for parametric fit
-from scipy import optimize, stats
+## for parametric fit and resistence/support
+from scipy import optimize, stats, signal
 
 
 
@@ -43,7 +44,7 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     rolling_std = ts.rolling(window=window).std()
     plt.figure(figsize=figsize)
     plt.title(ts.name)
-    plt.plot(ts[window:], label='Actual values', color="black")
+    plt.plot(ts[window:], label='ts', color="black")
     if plot_ma:
         plt.plot(rolling_mean, 'g', label='MA'+str(window), color="red")
     if plot_intervals:
@@ -53,6 +54,31 @@ def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     plt.legend(loc='best')
     plt.grid(True)
     plt.show()
+
+
+
+'''
+Fit a parametric trend line.
+:parameter
+    :param ts: pandas Series
+    :param degree: polynomial order, ex. if 1 --> trend line = constant + slope*x, if 2 --> trend line = constant + a*x + b*x^2
+'''
+def fit_trend(ts, degree=1, plot=True, figsize=(15,5)):
+    ## fit trend
+    dtf = ts.to_frame(name="ts")
+    params = np.polyfit(ts.reset_index().index, ts.values, deg=degree)
+    costant = params[-1]    
+    dtf["trend"] = costant
+    X = np.array(range(1,len(ts)+1))
+    for i in range(1,degree+1):
+        dtf["trend"] = dtf["trend"] + params[i-1]*(X**i)
+        
+    ## plot
+    if plot is True:
+        ax = dtf.plot(grid=True, title="Fitting Trend", figsize=figsize, color=["black","red"])
+        ax.set(xlabel=None)
+        plt.show()
+    return dtf, params
         
 
 
@@ -81,7 +107,8 @@ def test_stationarity_acf_pacf(ts, sample=0.20, maxlag=30, figsize=(15,10)):
         ts_ax.fill_between(x=dtf_ts.index, y1=dtf_ts['lower'], y2=dtf_ts['upper'], color='lightskyblue', alpha=0.4)
         dtf_ts["mean"].head(sample_size).plot(ax=ts_ax, legend=False, color="red", linewidth=0.9)
         ts_ax.fill_between(x=dtf_ts.head(sample_size).index, y1=dtf_ts['lower'].head(sample_size), y2=dtf_ts['upper'].head(sample_size), color='lightskyblue')
-        
+        ts_ax.set(xlabel=None)
+
         ## test stationarity (Augmented Dickey-Fuller)
         adfuller_test = sm.tsa.stattools.adfuller(ts, maxlag=maxlag, autolag="AIC")
         adf, p, critical_value = adfuller_test[0], adfuller_test[1], adfuller_test[4]["5%"]
@@ -150,7 +177,7 @@ Decompose ts into
 :parameter
     :param s: num - number of observations per season (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
 '''
-def decompose_ts(ts, s=250, figsize=(20,13)):
+def decompose_ts(ts, s=7, figsize=(20,13)):
     decomposition = smt.seasonal_decompose(ts, freq=s)
     trend = decomposition.trend
     seasonal = decomposition.seasonal
@@ -211,8 +238,51 @@ def remove_outliers(ts, outliers_idx, figsize=(15,5)):
     ts_clean = ts_clean.interpolate(method="linear")
     ax = ts.plot(figsize=figsize, color="red", alpha=0.5, title="Remove outliers", label="original", legend=True)
     ts_clean.plot(ax=ax, grid=True, color="black", label="interpolated", legend=True)
+    ax.set(xlabel=None)
     plt.show()
     return ts_clean
+
+
+
+'''
+Finds Maxs, Mins, Resistence and Support levels.
+:parameter
+    :param ts: pandas Series
+    :param window: int - rolling window
+    :param trend: bool - False if ts is flat
+:return
+    dtf with raw ts, max, min, resistence, support
+'''
+def resistence_support(ts, window=30, trend=False, plot=True, figsize=(15,5)):
+    dtf = ts.to_frame(name="ts")
+    dtf["max"], dtf["min"] = [np.nan, np.nan]
+    rolling = dtf['ts'].rolling(window=window).mean().dropna()  
+
+    ## maxs
+    local_max = signal.argrelextrema(rolling.values, np.greater)[0]
+    local_max_idx = [dtf.iloc[i-window:i+window]['ts'].idxmax() for i in local_max if (i > window) and (i < len(dtf)-window)]
+    dtf["max"].loc[local_max_idx] = dtf["ts"].loc[local_max_idx]
+
+    ## mins
+    local_min = signal.argrelextrema(rolling.values, np.less)[0]
+    local_min_idx = [dtf.iloc[i-window:i+window]['ts'].idxmin() for i in local_min if (i > window) and (i < len(dtf)-window)]
+    dtf["min"].loc[local_min_idx] = dtf["ts"].loc[local_min_idx]
+
+    ## resistence/support
+    dtf["resistence"] = dtf["max"].interpolate(method="linear") if trend is True else dtf["max"].fillna(method="ffill")
+    dtf["support"] = dtf["min"].interpolate(method="linear") if trend is True else dtf["min"].fillna(method="ffill")
+    
+    ## plot
+    if plot is True:
+        ax = dtf["ts"].plot(color="black", figsize=figsize, grid=True, title="Resistence and Support")
+        dtf["resistence"].plot(ax=ax, color="darkviolet", label="resistence", grid=True, linestyle="--")
+        dtf["support"].plot(ax=ax, color="green", label="support", grid=True, linestyle="--")
+        ax.scatter(x=dtf["max"].index, y=dtf["max"].values, color="darkviolet", label="max")
+        ax.scatter(x=dtf["min"].index, y=dtf["min"].values, color="green", label="min")
+        ax.set(xlabel=None)
+        ax.legend()
+        plt.show()
+    return dtf
 
 
 
@@ -329,10 +399,10 @@ def utils_evaluate_ts_model(dtf, conf=0.95, title=None, plot=True, figsize=(20,1
             ax3 = fig.add_subplot(2,2, 3)
             ax4 = fig.add_subplot(2,2, 4)
             ### training
-            dtf[pd.notnull(dtf["model"])][["ts","model"]].plot(color=["black","green"], title="Model", grid=True, ax=ax1)      
+            dtf[pd.notnull(dtf["model"])][["ts","model"]].plot(color=["black","green"], title="Train (obs: "+str(len(dtf[pd.notnull(dtf["model"])]))+")", grid=True, ax=ax1)      
             ax1.set(xlabel=None)
             ### test
-            dtf[pd.isnull(dtf["model"])][["ts","forecast"]].plot(color=["black","red"], title="Forecast", grid=True, ax=ax2)
+            dtf[pd.isnull(dtf["model"])][["ts","forecast"]].plot(color=["black","red"], title="Test (obs: "+str(len(dtf[pd.isnull(dtf["model"])]))+")", grid=True, ax=ax2)
             ax2.fill_between(x=dtf.index, y1=dtf['lower'], y2=dtf['upper'], color='b', alpha=0.2)
             ax2.set(xlabel=None)
             ### residuals
@@ -340,7 +410,10 @@ def utils_evaluate_ts_model(dtf, conf=0.95, title=None, plot=True, figsize=(20,1
             ax3.set(xlabel=None)
             ### residuals distribution
             dtf[["residuals","error"]].plot(ax=ax4, color=["green","red"], kind='kde', title="Residuals Distribution", grid=True)
+            ax4.axvline(dtf["residuals"].mean(), ls='--', color="green", label="mean: "+str(round(dtf["residuals"].mean(),2)))
+            ax4.axvline(dtf["error"].mean(), ls='--', color="red", label="mean: "+str(round(dtf["error"].mean(),2)))
             ax4.set(ylabel=None)
+            ax4.legend()
             plt.show()
             print("Training --> Residuals mean:", np.round(residuals_mean), " | std:", np.round(residuals_std))
             print("Test --> Error mean:", np.round(error_mean), " | std:", np.round(error_std),
@@ -398,18 +471,22 @@ def utils_add_forecast_int(dtf, conf=0.95, plot=True, zoom=30, figsize=(15,5)):
 
     ## plot
     if plot is True:
-        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+        fig = plt.figure(figsize=figsize)
         
         ### entire series
-        dtf[["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[0], title="History + Future")
-        ax[0].fill_between(x=dtf.index, y1=dtf['lower'], y2=dtf['upper'], color='b', alpha=0.2)
-              
+        ax0 = plt.subplot2grid((1,3), (0,0), rowspan=1, colspan=2)
+        dtf[["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax0, title="History + Future")
+        ax0.fill_between(x=dtf.index, y1=dtf['lower'], y2=dtf['upper'], color='b', alpha=0.2)
+        ax0.set(xlabel=None)
+
         ### focus on last
+        ax1 = plt.subplot2grid((1,3), (0,2), rowspan=1, colspan=1)
         first_idx = dtf[pd.notnull(dtf["forecast"])].index[0]
         first_loc = dtf.index.tolist().index(first_idx)
         zoom_idx = dtf.index[first_loc-zoom]
-        dtf.loc[zoom_idx:][["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax[1], title="Zoom on the last "+str(zoom)+" observations")
-        ax[1].fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['lower'], y2=dtf.loc[zoom_idx:]['upper'], color='b', alpha=0.2)
+        dtf.loc[zoom_idx:][["ts","forecast"]].plot(color=["black","red"], grid=True, ax=ax1, title="Zoom on the last "+str(zoom)+" observations")
+        ax1.fill_between(x=dtf.loc[zoom_idx:].index, y1=dtf.loc[zoom_idx:]['lower'], y2=dtf.loc[zoom_idx:]['upper'], color='b', alpha=0.2)
+        ax1.set(xlabel=None)
         plt.show()
     return dtf[["ts", "model", "residuals", "lower", "forecast", "upper"]]
 
@@ -499,26 +576,108 @@ def forecast_rw(ts, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, fig
 #                        AUTOREGRESSIVE                                       #
 ###############################################################################
 '''
-Fits Holt-Winters Exponential Smoothing: 
-    y[t+i] = (level[t] + i*trend[t]) * seasonality[t]
+Tune Holt-Winters Exponential Smoothing
+:parameter
+    :param ts_train: pandas timeseries
+    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+    :param val_size: num - size of validation fold
+    :param scoring: function(y_true, y_pred)
+    :param top: num - plot top models only
+:return
+    dtf with results
+'''
+def tune_expsmooth_model(ts_train, s=7, val_size=0.2, scoring=None, top=None, figsize=(15,5)):
+    ## split
+    dtf_fit, dtf_val = model_selection.train_test_split(ts_train, test_size=val_size, shuffle=False)
+    dtf_fit, dtf_val = dtf_fit.to_frame(name="ts"), dtf_val.to_frame(name="ts")
+    
+    ## scoring
+    scoring = metrics.mean_absolute_error if scoring is None else scoring   
+    
+    ## hyperamater space
+    trend = ['add', 'mul', None]
+    damped = [True, False]
+    seasonal = ['add', 'mult', None]
+
+    ## grid search
+    dtf_search = pd.DataFrame(columns=["combo","score","model"])
+    combinations = []
+    for t in trend:
+        for d in damped:
+            for ss in seasonal:
+                combo = "trend="+str(t)+", damped="+str(d)+", seas="+str(ss)
+                if combo not in combinations:
+                    combinations.append(combo)
+                    try:
+                        ### fit
+                        model = smt.ExponentialSmoothing(dtf_fit, trend=t, damped=d, seasonal=ss, seasonal_periods=s).fit()
+                        ### predict
+                        pred =  model.forecast(len(dtf_val))
+                        if pred.isna().sum() == 0:
+                            dtf_val[combo] = pred.values
+                            score = scoring(dtf_val["ts"].values, dtf_val[combo].values)
+                            dtf_search = dtf_search.append(pd.DataFrame({"combo":[combo],"score":[score],"model":[model]}))
+                    except:
+                        continue
+    
+    ## find best
+    dtf_search = dtf_search.sort_values("score").reset_index(drop=True)
+    best = dtf_search["combo"].iloc[0]
+    dtf_val = dtf_val.rename(columns={best:best+" [BEST]"})
+    dtf_val = dtf_val[["ts",best+" [BEST]"] + list(dtf_search["combo"].unique())[1:]]
+    
+    ## plot
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    fig.suptitle("Model Tuning", fontsize=15)
+    combos = dtf_val.drop("ts", axis=1).columns[:top]
+    if (len(combos) <= 7) or ((top is not None) and (top <= 7)):
+        colors = ["red","blue","green","violet","sienna","orange","yellow"]
+    else: 
+        colors = [tuple(np.random.rand(3,)) for i in range(len(combos))]
+
+    ### main
+    ts_train.plot(ax=ax[0], grid=True, color="black", legend=True, label="ts")
+    ax[0].fill_between(x=dtf_fit.index, y1=ts_train.max(), color='grey', alpha=0.2)
+    dtf_val[combos].plot(grid=True, ax=ax[0], color=colors, legend=True)
+    ax[0].legend(loc="upper left")
+    ax[0].set(xlabel=None)
+    ### zoom
+    dtf_val["ts"].plot(grid=True, ax=ax[1], color="black", legend=False) 
+    for i,col in enumerate(combos):
+        linewidth = 2 if col == best+" [BEST]" else 1
+        dtf_val[col].plot(grid=True, ax=ax[1], color=colors[i], legend=False, linewidth=linewidth)
+    ax[1].set(xlabel=None)  
+    plt.show()
+    return dtf_search
+
+
+
+'''
+Fits Exponential Smoothing: 
+    Simple (level) --> trend=None + seasonal=None
+        y[t+i] = α*y[t] + α(1-α)^1*y[t-1] + α(1-α)^2*y[t-2] + ... = (α)*y[t] + (1-α)*yhat[t]
+    Holt (level + trend) --> trend=["add","mul"] + seasonal=None
+        y[t+i] = level_f(α) + i*trend_f(β)
+    Holt-Winters (level + trend + seasonality) --> trend=["add","mul"] + seasonal=["add","mul"]
+        y[t+i] = level_f(α) + i*trend_f(β) + seasonality_f(γ)
 :parameter
     :param ts_train: pandas timeseries
     :param ts_test: pandas timeseries
     :param trend: str - "additive" (linear), "multiplicative" (non-linear)
+    :param damped: bool - damp trend
     :param seasonal: str - "additive" (ex. +100 every 7 days), "multiplicative" (ex. x10 every 7 days)
     :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-    :param alpha: num - the alpha value of the simple exponential smoothing (ex 0.94)
+    :param factors: tuple - (α,β,γ) smoothing factor for the level (ex 0.94), trend, seasonal
 :return
     dtf with predictons and the model
 '''
-def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative", s=None, alpha=0.94, conf=0.95, figsize=(15,10)):
+def fit_expsmooth(ts_train, ts_test, trend="additive", damped=False, seasonal="multiplicative", s=None, factors=(None,None,None), conf=0.95, figsize=(15,10)):
     ## checks
     check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal is None) & (s is None) else "Seasonal parameters: "+str(seasonal)+" Seasonality every "+str(s)+" observations"
     print(check_seasonality)
     
     ## train
-    #alpha = alpha if s is None else 2/(s+1)
-    model = smt.ExponentialSmoothing(ts_train, trend=trend, seasonal=seasonal, seasonal_periods=s).fit(smoothing_level=alpha)
+    model = smt.ExponentialSmoothing(ts_train, trend=trend, damped=damped, seasonal=seasonal, seasonal_periods=s).fit(factors[0], factors[1], factors[2])
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = model.fittedvalues
     
@@ -528,52 +687,94 @@ def fit_expsmooth(ts_train, ts_test, trend="additive", seasonal="multiplicative"
     
     ## evaluate
     dtf = dtf_train.append(dtf_test)
-    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Holt-Winters ("+str(alpha)+")")
+    alpha, beta, gamma = round(model.params["smoothing_level"],2), round(model.params["smoothing_slope"],2), round(model.params["smoothing_seasonal"],2)
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Holt-Winters "+str((alpha, beta, gamma)))
     return dtf, model
 
 
 
 '''
-Fits SARIMAX (Seasonal ARIMA with External Regressors):  
-    y[t+1] = (c + a0*y[t] + a1*y[t-1] +...+ ap*y[t-p]) + (e[t] + b1*e[t-1] + b2*e[t-2] +...+ bq*e[t-q]) + (B*X[t])
+Tune ARIMA
 :parameter
     :param ts_train: pandas timeseries
-    :param ts_test: pandas timeseries
-    :param order: tuple - ARIMA(p,d,q) --> p: lag order (AR), d: degree of differencing (to remove trend), q: order of moving average (MA)
-    :param seasonal_order: tuple - (P,D,Q,s) --> s: number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
-    :param exog_train: pandas dataframe or numpy array
-    :param exog_test: pandas dataframe or numpy array
+    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+    :param val_size: num - size of validation fold
+    :param max_order: tuple - max (p,d,q) values
+    :param seasonal_order: tuple - max (P,D,Q) values
+    :param scoring: function(y_true, y_pred)
+    :param top: num - plot top models only
 :return
-    dtf with predictons and the model
+    dtf with results
 '''
-def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_train=None, exog_test=None, conf=0.95, figsize=(15,10)):
-    ## checks
-    check_trend = "Trend parameters: No differencing" if order[1] == 0 else "Trend parameters: d="+str(order[1])
-    print(check_trend)
-    check_seasonality = "Seasonal parameters: No Seasonality" if (seasonal_order[3] == 0) & (np.sum(seasonal_order[0:3]) == 0) else "Seasonal parameters: Seasonality every "+str(seasonal_order[3])+" observations"
-    print(check_seasonality)
-    check_exog = "Exog parameters: Not given" if (exog_train is None) & (exog_test is None) else "Exog parameters: number of regressors="+str(exog_train.shape[1])
-    print(check_exog)
+def tune_arima_model(ts_train, s=7, val_size=0.2, max_order=(3,1,3), seasonal_order=(1,1,1), scoring=None, top=None, figsize=(15,5)):
+    ## split
+    dtf_fit, dtf_val = model_selection.train_test_split(ts_train, test_size=val_size, shuffle=False)
+    dtf_fit, dtf_val = dtf_fit.to_frame(name="ts"), dtf_val.to_frame(name="ts")
     
-    ## train
-    model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order, exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
-    dtf_train = ts_train.to_frame(name="ts")
-    dtf_train["model"] = model.fittedvalues
+    ## scoring
+    scoring = metrics.mean_absolute_error if scoring is None else scoring   
     
-    ## test
-    dtf_test = ts_test.to_frame(name="ts")
-    dtf_test["forecast"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
+    ## hyperamater space
+    ps = range(0,max_order[0]+1)
+    ds = range(0,max_order[1]+1)
+    qs = range(0,max_order[2]+1)
+    Ps = range(0,seasonal_order[0]+1)
+    Ds = range(0,seasonal_order[1]+1)
+    Qs = range(0,seasonal_order[2]+1)
 
-    ## add conf_int
-    ci = model.get_forecast(len(ts_test)).conf_int(1-conf).values
-    dtf_test["lower"], dtf_test["upper"] = ci[:,0], ci[:,1]
+    ## grid search
+    dtf_search = pd.DataFrame(columns=["combo","score","model"])
+    combinations = []
+    for p in ps:
+        for d in ds:
+            for q in qs:
+                for P in Ps:
+                    for D in Ds:
+                        for Q in Qs:
+                            combo = "("+str(p)+","+str(d)+","+str(q)+")x("+str(P)+","+str(D)+","+str(Q)+")"
+                            if combo not in combinations:
+                                combinations.append(combo)
+                            try:
+                                ### fit
+                                model = smt.SARIMAX(ts_train, order=(p,d,q), seasonal_order=(P,D,Q,s)).fit()
+                                ### predict
+                                pred =  model.forecast(len(dtf_val))
+                                if pred.isna().sum() == 0:
+                                    dtf_val[combo] = pred.values
+                                    score = scoring(dtf_val["ts"].values, dtf_val[combo].values)
+                                    dtf_search = dtf_search.append(pd.DataFrame({"combo":[combo],"score":[score],"model":[model]}))
+                            except:
+                                continue
     
-    ## evaluate
-    dtf = dtf_train.append(dtf_test)
-    title = "ARIMA "+str(order) if exog_train is None else "ARIMAX "+str(order)
-    title = "S"+title+" x "+str(seasonal_order) if np.sum(seasonal_order) > 0 else title
-    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title=title)
-    return dtf, model
+    ## find best
+    dtf_search = dtf_search.sort_values("score").reset_index(drop=True)
+    best = dtf_search["combo"].iloc[0]
+    dtf_val = dtf_val.rename(columns={best:best+" [BEST]"})
+    dtf_val = dtf_val[["ts",best+" [BEST]"] + list(dtf_search["combo"].unique())[1:]]
+    
+    ## plot
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    fig.suptitle("Model Tuning", fontsize=15)
+    combos = dtf_val.drop("ts", axis=1).columns[:top]
+    if (len(combos) <= 7) or ((top is not None) and (top <= 7)):
+        colors = ["red","blue","green","violet","sienna","orange","yellow"]
+    else: 
+        colors = [tuple(np.random.rand(3,)) for i in range(len(combos))]
+
+    ### main
+    ts_train.plot(ax=ax[0], grid=True, color="black", legend=True, label="ts")
+    ax[0].fill_between(x=dtf_fit.index, y1=ts_train.max(), color='grey', alpha=0.2)
+    dtf_val[combos].plot(grid=True, ax=ax[0], color=colors, legend=True)
+    ax[0].legend(loc="upper left")
+    ax[0].set(xlabel=None)
+    ### zoom
+    dtf_val["ts"].plot(grid=True, ax=ax[1], color="black", legend=False) 
+    for i,col in enumerate(combos):
+        linewidth = 2 if col == best+" [BEST]" else 1
+        dtf_val[col].plot(grid=True, ax=ax[1], color=colors[i], legend=False, linewidth=linewidth)
+    ax[1].set(xlabel=None)  
+    plt.show()
+    return dtf_search
 
 
     
@@ -597,6 +798,51 @@ def find_best_sarimax(ts, seasonal=True, stationary=False, s=1, exog=None,
                                      error_action='ignore')
     print("best model --> (p, d, q):", best_model.order, " and  (P, D, Q, s):", best_model.seasonal_order)
     return best_model.summary()
+
+
+
+'''
+Fits SARIMAX (Seasonal ARIMA with External Regressors) (p,d,q)x(P,D,Q,s):  
+    y[t+1] = (c + a0*y[t] + a1*y[t-1] +...+ ap*y[t-p]) + (e[t] + b1*e[t-1] + b2*e[t-2] +...+ bq*e[t-q]) + (B*X[t])
+:parameter
+    :param ts_train: pandas timeseries
+    :param ts_test: pandas timeseries
+    :param order: tuple - (p,d,q) --> p: lag order (AR), d: degree of differencing (to remove trend), q: order of moving average (MA)
+    :param seasonal_order: tuple - (P,D,Q) --> seasonal lag orders (ex. lag from the last 2 seasons)
+    :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
+    :param exog_train: pandas dataframe or numpy array
+    :param exog_test: pandas dataframe or numpy array
+:return
+    dtf with predictons and the model
+'''
+def fit_sarimax(ts_train, ts_test, order=(1,0,1), seasonal_order=(1,0,1), s=7, exog_train=None, exog_test=None, conf=0.95, figsize=(15,10)):
+    ## checks
+    check_trend = "Trend parameters: No differencing" if order[1] == 0 else "Trend parameters: d="+str(order[1])
+    print(check_trend)
+    check_seasonality = "Seasonal parameters: No Seasonality" if (s == 0) & (np.sum(seasonal_order[0:2]) == 0) else "Seasonal parameters: Seasonality every "+str(s)+" observations"
+    print(check_seasonality)
+    check_exog = "Exog parameters: Not given" if (exog_train is None) & (exog_test is None) else "Exog parameters: number of regressors="+str(exog_train.shape[1])
+    print(check_exog)
+    
+    ## train
+    model = smt.SARIMAX(ts_train, order=order, seasonal_order=seasonal_order+(s,), exog=exog_train, enforce_stationarity=False, enforce_invertibility=False).fit()
+    dtf_train = ts_train.to_frame(name="ts")
+    dtf_train["model"] = model.fittedvalues
+    
+    ## test
+    dtf_test = ts_test.to_frame(name="ts")
+    dtf_test["forecast"] = model.predict(start=len(ts_train), end=len(ts_train)+len(ts_test)-1, exog=exog_test)
+
+    ## add conf_int
+    ci = model.get_forecast(len(ts_test)).conf_int(1-conf).values
+    dtf_test["lower"], dtf_test["upper"] = ci[:,0], ci[:,1]
+    
+    ## evaluate
+    dtf = dtf_train.append(dtf_test)
+    title = "ARIMA "+str(order) if exog_train is None else "ARIMAX "+str(order)
+    title = "S"+title+" x "+str(seasonal_order) if np.sum(seasonal_order) > 0 else title
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title=title)
+    return dtf, model
 
 
 
@@ -630,7 +876,7 @@ def fit_garch(ts_train, ts_test, order=(1,0,1), seasonal_order=(0,0,0,0), exog_t
 
 
 '''
-Forecast unknown future.
+Forecast unknown future with sarimax or expsmooth.
 :parameter
     :param ts: pandas series
     :param model: model object
@@ -639,9 +885,11 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_autoregressive(ts, model=None, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+    ## model
+    model = smt.SARIMAX(ts, order=(1,1,1), seasonal_order=(0,0,0,0)).fit() if model is None else model 
+
     ## fit
-    model = model.fit()
     dtf = ts.to_frame(name="ts")
     dtf["model"] = model.fittedvalues
     dtf["residuals"] = dtf["ts"] - dtf["model"]
@@ -650,13 +898,15 @@ def forecast_arima(ts, model, pred_ahead=None, end=None, freq="D", conf=0.95, zo
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
-    preds = model.get_forecast(len(index))
-    dtf_preds = preds.predicted_mean.to_frame(name="forecast")
-
-    ## add conf_int
-    ci = preds.conf_int(1-conf).values
-    dtf_preds["lower"], dtf_preds["upper"] = ci[:,0], ci[:,1]
-    
+    if "holtwinters" in str(model):
+        preds = model.forecast(len(index))
+        dtf_preds = preds.to_frame(name="forecast")
+    else:
+        preds = model.get_forecast(len(index))
+        dtf_preds = preds.predicted_mean.to_frame(name="forecast")
+        ci = preds.conf_int(1-conf).values
+        dtf_preds["lower"], dtf_preds["upper"] = ci[:,0], ci[:,1]
+        
     ## add intervals and plot
     dtf = dtf.append(dtf_preds)
     dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
@@ -827,7 +1077,14 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_lstm(ts, model, epochs=100, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+    ## model
+    if model is None:
+        model = models.Sequential([
+            layers.LSTM(input_shape=(1,7), units=50, activation='relu', return_sequences=False),
+            layers.Dense(1) ])
+        model.compile(optimizer='adam', loss='mean_absolute_error')
+
     ## fit
     s = model.input_shape[-1]
     X, y, scaler = utils_preprocess_ts(ts, scaler=None, exog=None, s=s)
@@ -909,7 +1166,10 @@ Forecast unknown future.
     :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_prophet(dtf, model, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_prophet(dtf, model=None, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+    ## model
+    model = Prophet() if model is None else model
+
     ## fit
     model.fit(dtf)
     
@@ -1031,5 +1291,319 @@ def forecast_curve(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, f
 
 
 ###############################################################################
-#                              CLUSTERING                                     #
+#                            MANUAL SEASONALITY                               #
+###############################################################################
+'''
+Extract seasonality from a ts
+:parameter
+    :param ts: pandas series with datetime index
+    :param freq: str - 'D' daily, 'W' weekly, 'M' monthly, if None its inferred from index
+:return
+    dictionary with day-of-week, day-of-month, day-of-year, week-of-year, month-of-year
+'''
+def extract_seasonality(ts, freq=None):
+    freq = ts.index.inferred_freq[0] if freq is None else freq
+    dic_seasonality = {}
+    
+    ## daily
+    if freq == "D":
+        ### day-of-week: mean of Mondays/total mean, mean of Tuesadays/total mean, ...
+        dic_seasonality["dow"] = ts.groupby(ts.index.weekday).mean() / ts.mean()
+        ### day-of-month: mean of 1st day of the month/total mean, mean of 2nd day of the month/total mean, ...
+        dic_seasonality["dom"] = ts.groupby(ts.index.day).mean() / ts.mean()
+        ### day-of-year: mean of 1st day of the year/total mean, mean of 2nd day of the year/total mean, ...
+        dic_seasonality["doy"] = ts.groupby(ts.index.dayofyear).mean() / ts.mean()
+   
+    ## weekly
+    if freq in ["W","D"]:
+        ### week-of-year: mean of 1st week of the year/total mean, mean of 2nd day of the year/total mean, ...
+        dic_seasonality["woy"] = ts.groupby(ts.index.week).mean() / ts.mean()  #ts.index.isocalendar().week
+    
+    ## monthly
+    ### month-of-year: mean of Januarys/total mean, mean of Februarys/total mean, ...
+    dic_seasonality["moy"] = ts.groupby(ts.index.month).mean() / ts.mean()
+    return dic_seasonality
+
+
+
+'''
+Apply the extracted seasonality
+:parameter
+    :param ts: pandas series with datetime index
+    :param dic_seasonality: dictionary with day-of-week, day-of-month, day-of-year, week-of-year, month-of-year
+    :param seastypes: list - ["dow", "dom", "doy", "woy", "moy"] if empty it applies all
+    :param plot: bool - if True plots every step
+:return
+    input ts with new values
+'''
+def apply_seasonality(ts, dic_seasonality, seastypes=[], plot=True, figsize=(15,5)):
+    seastypes = dic_seasonality.keys() if len(seastypes) == 0 else seastypes
+
+    if plot is True:
+        ax = ts.plot(grid=True, color="black", label="ts", title="Applying Seasonality", linewidth=3, figsize=figsize)
+
+    for s in seastypes:
+        if s == "dow":
+            ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.weekday]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="orange", label="dow")   
+
+        if s == "dom":
+            ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.day]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="green", label="dom")
+
+        if s == "doy":
+            ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1 
+                       for i in ts.index.dayofyear]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="blue", label="doy")
+
+        if s == "woy":
+            ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.week]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="darkviolet", label="woy")
+
+        if s == "moy":
+            ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.month]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="tomato", label="moy")
+
+    if plot is True:
+        ts.plot(ax=ax, grid=True, color="red", label="new ts", linewidth=3)
+        ax.legend(loc="best")
+        ax.set(xlabel=None)
+        plt.show()
+    return ts
+
+
+
+'''
+Remove the extracted seasonality (leave the trend component only)
+:parameter
+    :param ts: pandas series with datetime index
+    :param dic_seasonality: dictionary with day-of-week, day-of-month, day-of-year, week-of-year, month-of-year
+    :param seastypes: list - ["dow", "dom", "doy", "woy", "moy"], if empty it applies all
+    :param plot: bool - if True plots every step
+:return
+    input ts with new values
+'''
+def remove_seasonality(ts, dic_seasonality, seastypes=[], plot=True, figsize=(15,5)):
+    seastypes = dic_seasonality.keys() if len(seastypes) == 0 else seastypes
+
+    if plot is True:
+        ax = ts.plot(grid=True, color="black", label="ts", title="Applying Seasonality", linewidth=3, figsize=figsize)
+
+    for s in seastypes:
+        if s == "dow":
+            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.weekday]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="orange", label="dow")   
+
+        if s == "dom":
+            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.day]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="green", label="dom")
+
+        if s == "doy":
+            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1 
+                       for i in ts.index.dayofyear]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="blue", label="doy")
+
+        if s == "woy":
+            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.week]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="darkviolet", label="woy")
+
+        if s == "moy":
+            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
+                       for i in ts.index.month]
+            if plot is True:
+                ts.plot(ax=ax, grid=True, color="tomato", label="moy")
+
+    if plot is True:
+        ts.plot(ax=ax, grid=True, color="red", label="new ts", linewidth=3)
+        ax.legend(loc="best")
+        ax.set(xlabel=None)
+        plt.show()
+    return ts
+
+
+
+###############################################################################
+#                        MODEL FROM SCRATCH                                   #
+###############################################################################
+'''
+From scratch model with Trend + Seasonality (independent from s) + Level + Resistence/Support and Cap/Floor adjustemetns.
+:parameter
+    :param ts: pandas series with datetime index 
+    :param trend: bool - if True fits a trend line
+    :param seasonality_types: None or list - ["dow", "dom", "doy", "woy", "moy"], if empty it applies all
+    :param level_window: num - used for rolling smoothing of the level
+    :param sup_res_windows: tuple - ex. (180, 60) --> if the forecast mean below support or above resistence, the level is shifted
+    :param floor_cap: tuple of bool - ex. (True,True) --> values over cap are replaced with cap and values below floor are replaced with floor
+:return
+    series with fitted_values, series with preds
+'''
+def custom_model(ts, pred_ahead, trend=False, seasonality_types=None, level_window=1, sup_res_windows=(None,None), floor_cap=(False,False), plot=True, figsize=(15,5)):
+    index = utils_generate_indexdate(start=ts.index[-1], n=pred_ahead+1)
+    
+    ## 1. Trend
+    ### fitted
+    dtf, trend_params = fit_trend(ts, trend, plot=False)
+    dtf["model"] = dtf["trend"]
+    
+    ### forecast
+    dtf_preds = pd.DataFrame(data=[trend_params[-1]]*len(index), index=index, columns=["trend"])
+    X = np.array(range(len(ts), len(ts)+len(dtf_preds)))
+    for i in range(1,trend+1):
+        dtf_preds["trend"] = dtf_preds["trend"] + trend_params[i-1]*(X**i)
+    dtf_preds["forecast"] = dtf_preds["trend"]
+    
+    ### plot
+    if plot is True:
+        ax = dtf.append(dtf_preds)[["ts"]].plot(color="black", figsize=figsize)
+        if trend is True:
+            dtf.append(dtf_preds)["trend"].plot(color="blue", ax=ax)
+    
+    ## 2. Seasonality
+    if seasonality_types is not None:
+        dic_seasonality = extract_seasonality(ts)
+        dtf["model"] = apply_seasonality(dtf["model"], dic_seasonality, seasonality_types, plot=False)
+        dtf_preds["forecast"] = apply_seasonality(dtf_preds["forecast"], dic_seasonality, seasonality_types, plot=False)
+    
+    ## 3. Level
+    ### level is the trend
+    if trend is True:
+        dtf["level"] = dtf["trend"]
+        dtf_preds["level"] = dtf_preds["trend"]
+    
+    ### level is the moving average
+    else:
+        dtf["level"] = dtf["ts"].rolling(window=level_window).mean().fillna(method="bfill")
+        dtf_preds["level"] = dtf["level"].iloc[-1]
+        if plot is True:
+            dtf.append(dtf_preds)["level"].plot(color="blue", ax=ax)
+    
+    ### shift
+    shift = dtf["level"] - dtf["model"].rolling(window=level_window).mean().fillna(method="bfill")
+    dtf["model"] = dtf["model"] + shift
+    shift = dtf_preds["level"] - dtf_preds["forecast"].rolling(window=level_window).mean().fillna(method="bfill")
+    dtf_preds["forecast"] = dtf_preds["forecast"] + shift
+        
+    ## 4. Floor and Cap
+    ### floor
+    if floor_cap[0] is True:
+        floor = ts.min()
+        dtf["model"].loc[dtf["model"]<floor] = floor
+        dtf_preds["forecast"].loc[dtf_preds["forecast"]<floor] = floor
+        if plot is True:
+            ax.axhline(floor, ls='--', color="red", label="floor")
+            
+    ### cap
+    if floor_cap[1] is True:
+        cap = ts.max()
+        dtf["model"].loc[dtf["model"]>cap] = cap
+        dtf_preds["forecast"].loc[dtf_preds["forecast"]>cap] = cap
+        if plot is True:
+            ax.axhline(cap, ls='--', color="red", label="cap")
+    
+    ### plot checkpoint
+    if plot is True:
+        dtf_preds["forecast"].plot(grid=True, color="cornflowerblue", ax=ax)
+        
+    ## 5. Support and Resistence
+    if sup_res_windows != (None,None):
+        res_sup = resistence_support(ts, window=level_window, trend=False, plot=False)
+        
+        ### support only (bounce up if forecast < support)
+        if sup_res_windows[0] is not None:
+            dtf["support"] = res_sup["support"]
+            support = dtf["support"].rolling(window=sup_res_windows[0]).mean()[-1]
+            dtf_preds["support"] = [support] * len(dtf_preds)
+            if dtf_preds["forecast"].mean() < dtf_preds["support"].mean():
+                shift = dtf_preds["support"].mean() - dtf_preds["forecast"].mean()
+                dtf_preds["forecast"] = dtf_preds["forecast"] + shift
+            if plot is True:
+                dtf.append(dtf_preds)["support"].plot(ax=ax, color="green", ls="--")
+                
+        ### resistence only (bounce down if forecast > resistence)
+        if sup_res_windows[1] is not None:
+            dtf["resistence"] = res_sup["resistence"]
+            resistence = dtf["resistence"].rolling(window=sup_res_windows[1]).mean()[-1]
+            dtf_preds["resistence"] = [resistence] * len(dtf_preds)
+            if dtf_preds["forecast"].mean() > dtf_preds["resistence"].mean():
+                shift = dtf_preds["forecast"].mean() - dtf_preds["resistence"].mean()
+                dtf_preds["forecast"] = dtf_preds["forecast"] - shift
+            if plot is True:
+                dtf.append(dtf_preds)["resistence"].plot(ax=ax, color="green", ls="--")
+            
+    ## 6. Plot and Return
+    if plot is True:
+        dtf_preds["forecast"].plot(grid=True, color="red", ax=ax)
+        ax.set(xlim=[ts.index[0],index[-1]], ylim=[ts.min()-ts.mean()/2,ts.max()+ts.mean()/2])
+        ax.get_legend().remove()
+        plt.show()
+    fitted_values, preds = dtf["model"], dtf_preds["forecast"]
+    return fitted_values, preds
+
+
+
+'''
+Fit Custom model.
+:parameter
+    :param ts_train: pandas timeseries
+    :param ts_test: pandas timeseries
+:return
+    dtf with predictons
+'''
+def fit_custom_model(ts_train, ts_test, trend=False, seasonality_types=None, level_window=None, sup_res_windows=(None,None), floor_cap=(False,False), conf=0.95, figsize=(15,10)):
+    ## train / test
+    fitted_values, preds = custom_model(ts_train, pred_ahead=len(ts_test), trend=trend, seasonality_types=seasonality_types, 
+                                        level_window=level_window, sup_res_windows=sup_res_windows, floor_cap=floor_cap, plot=False)
+    dtf_train, dtf_test = ts_train.to_frame(name="ts"), ts_test.to_frame(name="ts")
+    dtf_train["model"], dtf_test["forecast"] = fitted_values, preds
+
+    ## evaluate
+    dtf = dtf_train.append(dtf_test)
+    dtf = utils_evaluate_ts_model(dtf, conf=conf, figsize=figsize, title="Custom Model")
+    return dtf
+
+
+
+'''
+Forecast unknown future with Custom model.
+:parameter
+    :param ts: pandas series
+    :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
+    :param end: string - date to forecast (ex. end="2016-12-31")
+    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
+    :param zoom: for plotting
+'''
+def forecast_custom_model(ts, trend=False, seasonality_types=None, level_window=None, sup_res_windows=(None,None), floor_cap=(False,False), pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+    ## fit / forecast
+    index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
+    fitted_values, preds = custom_model(ts, pred_ahead=len(index), trend=trend, seasonality_types=seasonality_types, 
+                                        level_window=level_window, sup_res_windows=sup_res_windows, floor_cap=floor_cap, plot=False)
+    dtf = ts.to_frame(name="ts")
+    dtf["model"] = fitted_values
+    dtf_preds = preds.to_frame("forecast")
+   
+    ## add intervals and plot
+    dtf = dtf.append(dtf_preds)
+    dtf = utils_add_forecast_int(dtf, conf=conf, zoom=zoom)
+    return dtf
+
+
+
+###############################################################################
+#                             MULTIPLE TS                                     #
 ###############################################################################
