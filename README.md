@@ -69,6 +69,12 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 		<img src="_docs/ts_param.PNG" width="300" height="150">
 
+
+- <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_multiple_series.ipynb)**</ins>
+	* Clustering
+
+		<img src="_docs/ts_clustering.PNG" width="300" height="150">
+
 ------
 
 ### 3. Natural Language Processing:
