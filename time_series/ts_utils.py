@@ -10,8 +10,8 @@ import matplotlib.patches as pltpatches
 ## for stationarity test
 import statsmodels.api as sm
 
-## for outliers detection and models tuning
-from sklearn import preprocessing, svm, model_selection, metrics
+## for outliers detection, models tuning, clustering
+from sklearn import preprocessing, svm, model_selection, metrics, cluster
 
 ## for autoregressive models
 import pmdarima
@@ -26,7 +26,10 @@ from fbprophet import Prophet
 pd.plotting.register_matplotlib_converters()
 
 ## for parametric fit and resistence/support
-from scipy import optimize, stats, signal
+from scipy import optimize, stats, signal, cluster as sci_cluster
+
+## for clustering
+from tslearn.metrics import dtw
 
 
 
@@ -38,6 +41,8 @@ Plot ts with rolling mean and 95% confidence interval with rolling std.
 :parameter
     :param ts: pandas Series
     :param window: num for rolling stats
+    :param plot_intervals: bool - if True plots the conf interval
+    :param plot_ma: bool - if True plots the moving avg
 '''
 def plot_ts(ts, plot_ma=True, plot_intervals=True, window=30, figsize=(15,5)):
     rolling_mean = ts.rolling(window=window).mean()
@@ -1291,7 +1296,7 @@ def forecast_curve(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, f
 
 
 ###############################################################################
-#                            MANUAL SEASONALITY                               #
+#                            MANUAL MODEL                                     #
 ###############################################################################
 '''
 Extract seasonality from a ts
@@ -1438,9 +1443,6 @@ def remove_seasonality(ts, dic_seasonality, seastypes=[], plot=True, figsize=(15
 
 
 
-###############################################################################
-#                        MODEL FROM SCRATCH                                   #
-###############################################################################
 '''
 From scratch model with Trend + Seasonality (independent from s) + Level + Resistence/Support and Cap/Floor adjustemetns.
 :parameter
@@ -1607,3 +1609,233 @@ def forecast_custom_model(ts, trend=False, seasonality_types=None, level_window=
 ###############################################################################
 #                             MULTIPLE TS                                     #
 ###############################################################################
+'''
+Select a single ts from multiple dtf.
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param name: str - name of ts to filter
+    :param idxs: list - columns with ts values (ex. list of dates)
+:return
+    pandas series with idxs as index and name column with values
+'''
+def utils_filter_ts(dtf, name, idxs):
+    ts = dtf[dtf["ts"]==name][idxs].T
+    ts.columns = [name]
+    ts.index = pd.to_datetime(ts.index)
+    return ts
+
+
+
+'''
+Plot multiple series.
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param idxs: list - columns with ts values (ex. list of dates)
+    :param color: str - column that dictates the legend (ex. "ts": a color for each ts, "exog": a color for each unique value)
+    :param lst_colors: list - use specific colors, if None colors are created randomly
+    :param lst_highlights: list - names of ts to highlight (ex. ["ts_001", "mean"])
+    :param legend: bool - whether to show the legend
+    :param title: str - image title
+'''
+def plot_multiple_ts(dtf, idxs, color=None, lst_colors=None, lst_highlights=[], legend=False, title=None, figsize=(15,5)):
+    data = dtf.copy()
+    
+    ## set colors
+    if color is not None:
+        lst_elements = sorted(list(data[color].unique()))
+        lst_colors = ['#%06X' % np.random.randint(0, 0xFFFFFF) for i in range(len(lst_elements))] if lst_colors is None else lst_colors
+        data["color"] = data[color].apply(lambda x: lst_colors[lst_elements.index(x)])            
+    else:
+        data["color"] = "black"
+        
+    ## highlight some specific ts
+    if len(lst_highlights) > 0:
+        data.loc[data["ts"].isin(lst_highlights), "color"] = "red"
+    
+    ## plot
+    fig, ax = plt.subplots(figsize=figsize)
+    fig.suptitle(title, fontsize=15)
+    lst_legend = []
+    for i,row in data.iterrows():
+        ts = utils_filter_ts(dtf, row["ts"], idxs)
+        ts.plot(ax=ax, legend=False, grid=True, color=row["color"]) 
+    
+    ## legend
+    if legend is True:
+        lst_leg = []
+        if color is not None:
+            lst_leg = lst_leg + [pltpatches.Patch(color=c, label=lst_elements[lst_colors.index(c)]) for c in lst_colors]
+        if len(lst_highlights) > 0:
+            lst_leg = lst_leg + [pltpatches.Patch(color="red", label=i) for i in lst_highlights]
+        
+        ax.legend(handles=lst_leg)
+    plt.show()
+
+
+
+'''
+Summarizes multiple series into 1 with or without the groupby (affects rows).
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param by: str - column to groupby (ex. "ts" or "exog"), if None it doesn't groupby
+    :param aggs: list - types of aggregation (ex. ["mean","median","max","min"])
+    :param return_all: bool - if True appends the aggs to the input dtf
+:return
+    dtf with summarized series
+'''
+def summarize_multiple_ts(dtf, by=None, aggs=["mean"], return_all=True):
+    ## don't group by
+    if by is None:
+        summ_dtf = dtf.agg(aggs)
+        if "ts" in summ_dtf.columns:
+            summ_dtf = summ_dtf.drop("ts", axis=1)
+        summ_dtf = summ_dtf.reset_index().rename(columns={"index":"ts"})
+            
+    ## group by
+    else:
+        summ_dtf = pd.DataFrame()
+        for agg in aggs:
+            rows = dtf.groupby(by).agg(agg)
+            if "ts" in rows.columns:
+                rows = rows.drop("ts", axis=1)
+            rows = rows.reset_index().rename(columns={by:"ts"})
+            rows["ts"] = rows["ts"].apply(lambda x: str(x)+"_"+str(agg))
+            summ_dtf = summ_dtf.append(rows, ignore_index=True)
+    
+    ## append
+    if return_all is True:
+        summ_dtf = dtf.append(summ_dtf, ignore_index=True)[dtf.columns]
+    print("--- rows from:", dtf.shape[0], "--> to:", summ_dtf.shape[0], "---")
+    return summ_dtf
+
+
+
+'''
+Resample the frequency of multiple series (affects columns).
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param idxs: list - columns with ts values (ex. list of dates)
+    :param rule: str - "D"(Daily), "B"(Business Days), "W"(Weekly), "M"(Monthly), "Q"(Quaterly), "A"(Annual)
+    :param agg: str - "mean", "max", "min"
+:return
+    dtf with resampled series
+'''
+def resample_multiple_ts(dtf, idxs, rule="W", agg="mean"):
+    ## create new dtf
+    new_dtf = pd.DataFrame()
+    for name in dtf["ts"].values:
+        ts = utils_filter_ts(dtf, name, idxs)
+        new_ts = ts.resample(rule=rule).apply(agg)
+        new_dtf = new_dtf.append(new_ts.T)
+    
+    ## fix column names
+    new_dtf = new_dtf.reset_index()
+    new_idxs = [i.strftime("%Y-%m-%d") for i in new_dtf.columns[1:]]
+    new_dtf.columns = ["ts"] + new_idxs
+        
+    ## join the other columns
+    other_cols = dtf.drop(idxs, axis=1).columns
+    if len(other_cols) > 1:
+        new_dtf = new_dtf.merge(dtf[other_cols], on="ts")
+    print("--- columns from:", dtf.shape[1], "--> to:", new_dtf.shape[1], "---")
+    return new_dtf[list(other_cols)+new_idxs], new_idxs
+
+
+
+'''
+Split dtf by rows or by columns.
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param idxs: list - columns with ts values (ex. list of dates)
+    :param test_size: num - ex. 0.20
+    :param idx_split: str - ex. "2019-10-31"
+:return
+    dtf_train, dtf_test
+'''
+def split_multiple_train_test(dtf, idxs=None, test_size=None, idx_split=None):
+    ## split rows (divide ts, same dates)
+    if idxs is None:
+        dtf_train, dtf_test = model_selection.train_test_split(dtf, test_size=test_size, shuffle=True)
+    
+    ## split columns (same ts, divide the dates)
+    else:
+        ### split
+        split = int((1-test_size)*len(idxs)) if test_size is not None else idxs.index(idx_split)
+        print("--- splliting at", idxs[split], "("+str(round(split/len(idxs),2))+")", "---")
+        idxs_train, idxs_test = idxs[:split], idxs[split:]
+        dtf_train, dtf_test = dtf[idxs_train], dtf[idxs_test]
+        dtf_train["ts"], dtf_test["ts"] = dtf["ts"], dtf["ts"]
+        ### join the other columns
+        other_cols = dtf.drop(idxs, axis=1).columns
+        dtf_train = dtf_train.merge(dtf[other_cols], on="ts")
+        dtf_test = dtf_test.merge(dtf[other_cols], on="ts")
+        dtf_train, dtf_test = dtf_train[list(other_cols)+idxs_train], dtf_test[list(other_cols)+idxs_test]             
+    return dtf_train, dtf_test
+
+
+
+###############################################################################
+#                             CLUSTERING                                      #
+###############################################################################
+'''
+Dynamic time warping distance (or similarity score).
+:parameter
+    :param lst_ts: list of series, >= 2
+    :param normalized: bool - if True distances are scaled betweeon 0 and 1
+    :param return_sim: bool - if True return similarity score as 1-distance
+:return
+    dtf with matrix of dtw scores
+'''
+def utils_dtw_dist(lst_ts, normalized=True, return_sim=False):
+    dtw_scores = {}
+    for a in lst_ts:
+        name_a = a.columns[0]
+        for b in lst_ts:
+            name_b = b.columns[0]
+            dtw_score = dtw(a, b)
+            dtw_scores[(name_a, name_b)] = [dtw_score]
+    dtw_sim = pd.DataFrame(dtw_scores).T.reset_index().rename(
+                columns={"level_0":"index", "level_1":"columns", 0:"distance"}).pivot_table(
+                index="index", columns="columns", values="distance")
+    if (normalized is True) or (return_sim is True):
+        dtw_sim = dtw_sim / (dtw_sim.sum().sum()/2)
+    return dtw_sim if return_sim is False else 1-dtw_sim
+
+
+
+'''
+Heirarchical Clustering with Dynamic Time Warping distance.
+:parameter
+    :param dtf: pandas dataframe ts x dates, "ts" column has the series names
+    :param idxs: list - columns with ts values (ex. list of dates)
+:return
+    dtf with new column with clusters
+'''
+def clustering_multiple_ts(dtf, idxs, figsize=(10,5)):
+    ## dynamic time warping
+    dtf_c = dtf.copy()
+    lst_ts = [utils_filter_ts(dtf_c, name, idxs) for name in dtf_c["ts"].unique()]
+    dtw_sim = utils_dtw_dist(lst_ts, normalized=False, return_sim=False)
+
+    ## hierarchical clustering
+    ward_links = sci_cluster.hierarchy.ward(dtw_sim)
+    max_dist_allowed_inside_clusters = dtw_sim.max().max()
+    clusters = sci_cluster.hierarchy.fcluster(ward_links, t=max_dist_allowed_inside_clusters, criterion='distance')
+    
+    ## put in the dtf
+    other_cols = dtf_c.drop(idxs, axis=1).columns
+    dtf_c["cluster"] = clusters
+    k = dtf_c["cluster"].nunique()
+    print("--- found", k, "clusters ---")
+
+    ## plot freq
+    ax = dtf_c["cluster"].value_counts().sort_values().plot(kind="barh", title="Cluster distribution", figsize=figsize)
+    total = sum([i.get_width() for i in ax.patches])
+    for i in ax.patches:
+        ax.text(i.get_width()+.3, i.get_y()+.10, 
+                str(i.get_width())+" ("+str(round((i.get_width()/total)*100,2))+'%)', 
+                fontsize=10, color='black')
+    ax.set(xlim=[0, dtf_c["cluster"].value_counts().max()+dtf_c["cluster"].value_counts().mean()])
+    ax.grid(axis="x")
+    plt.show()
+    return dtf_c[list(other_cols)+["cluster"]+idxs]
