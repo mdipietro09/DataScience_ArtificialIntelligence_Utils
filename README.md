@@ -73,7 +73,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 - <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_multiple_series.ipynb)**</ins>
 	* Clustering
 
-		<img src="_docs/ts_clustering.PNG" width="300" height="150">
+		<img src="_docs/ts_clustering.PNG" width="400" height="150">
 
 ------
 
