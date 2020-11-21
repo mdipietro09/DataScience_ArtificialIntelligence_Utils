@@ -30,6 +30,8 @@ from scipy import optimize, stats, signal, cluster as sci_cluster
 
 ## for clustering
 from tslearn.metrics import dtw
+from tslearn.utils import to_time_series_dataset
+from tslearn.clustering import TimeSeriesKMeans
 
 
 
@@ -220,14 +222,13 @@ def find_outliers(ts, perc=0.01, figsize=(15,5)):
     model.fit(ts_scaled)
     ## dtf output
     dtf_outliers = ts.to_frame(name="ts")
-    dtf_outliers["index"] = range(len(ts))
     dtf_outliers["outlier"] = model.predict(ts_scaled)
-    dtf_outliers["outlier"] = dtf_outliers["outlier"].apply(lambda x: 1 if x==-1 else 0)
+    dtf_outliers["outlier"] = dtf_outliers["outlier"].apply(lambda x: 1 if x == -1 else 0)
     ## plot
     fig, ax = plt.subplots(figsize=figsize)
-    ax.set(title="Outliers detection: found "+str(sum(dtf_outliers["outlier"]==1)))
-    ax.plot(dtf_outliers["index"], dtf_outliers["ts"], color="black")
-    ax.scatter(x=dtf_outliers[dtf_outliers["outlier"]==1]["index"], y=dtf_outliers[dtf_outliers["outlier"]==1]['ts'], color='red')
+    ax.set(title="Outliers detection: found "+str(sum(dtf_outliers["outlier"] == 1)))
+    ax.plot(dtf_outliers.index, dtf_outliers["ts"], color="black")
+    ax.scatter(x=dtf_outliers[dtf_outliers["outlier"]==1].index, y=dtf_outliers[dtf_outliers["outlier"]==1]['ts'], color='red')
     ax.grid(True)
     plt.show()
     return dtf_outliers
@@ -1474,7 +1475,7 @@ def custom_model(ts, pred_ahead, trend=False, seasonality_types=None, level_wind
     if plot is True:
         ax = dtf.append(dtf_preds)[["ts"]].plot(color="black", figsize=figsize)
         if trend is True:
-            dtf.append(dtf_preds)["trend"].plot(color="blue", ax=ax)
+            dtf.append(dtf_preds)["trend"].plot(color="yellow", ax=ax)
     
     ## 2. Seasonality
     if seasonality_types is not None:
@@ -1678,12 +1679,12 @@ Summarizes multiple series into 1 with or without the groupby (affects rows).
 :parameter
     :param dtf: pandas dataframe ts x dates, "ts" column has the series names
     :param by: str - column to groupby (ex. "ts" or "exog"), if None it doesn't groupby
-    :param aggs: list - types of aggregation (ex. ["mean","median","max","min"])
+    :param aggs: list - types of aggregation (ex. ["sum","mean","median","max","min"])
     :param return_all: bool - if True appends the aggs to the input dtf
 :return
     dtf with summarized series
 '''
-def summarize_multiple_ts(dtf, by=None, aggs=["mean"], return_all=True):
+def summarize_multiple_ts(dtf, by=None, aggs=["mean","sum"], return_all=True):
     ## don't group by
     if by is None:
         summ_dtf = dtf.agg(aggs)
@@ -1780,13 +1781,12 @@ def split_multiple_train_test(dtf, idxs=None, test_size=None, idx_split=None):
 '''
 Dynamic time warping distance (or similarity score).
 :parameter
-    :param lst_ts: list of series, >= 2
-    :param normalized: bool - if True distances are scaled betweeon 0 and 1
+    :param lst_ts: list of series, >= 2 (series should be z-scaled)
     :param return_sim: bool - if True return similarity score as 1-distance
 :return
     dtf with matrix of dtw scores
 '''
-def utils_dtw_dist(lst_ts, normalized=True, return_sim=False):
+def utils_dtw_dist(lst_ts, return_sim=False):
     dtw_scores = {}
     for a in lst_ts:
         name_a = a.columns[0]
@@ -1794,42 +1794,54 @@ def utils_dtw_dist(lst_ts, normalized=True, return_sim=False):
             name_b = b.columns[0]
             dtw_score = dtw(a, b)
             dtw_scores[(name_a, name_b)] = [dtw_score]
-    dtw_sim = pd.DataFrame(dtw_scores).T.reset_index().rename(
+    dtw_dist = pd.DataFrame(dtw_scores).T.reset_index().rename(
                 columns={"level_0":"index", "level_1":"columns", 0:"distance"}).pivot_table(
                 index="index", columns="columns", values="distance")
-    if (normalized is True) or (return_sim is True):
-        dtw_sim = dtw_sim / (dtw_sim.sum().sum()/2)
-    return dtw_sim if return_sim is False else 1-dtw_sim
+    return dtw_dist if return_sim is False else 1 - dtw_dist/(dtw_dist.sum().sum()/2)
 
 
 
 '''
-Heirarchical Clustering with Dynamic Time Warping distance.
+Clustering with Dynamic Time Warping distance + with K-Means or Heirarchical.
 :parameter
     :param dtf: pandas dataframe ts x dates, "ts" column has the series names
     :param idxs: list - columns with ts values (ex. list of dates)
+    :param k: num - number of clusters for k-means, if None heirarchical is used
+    :param top: num - head to plot, if None plots all
 :return
     dtf with new column with clusters
 '''
-def clustering_multiple_ts(dtf, idxs, figsize=(10,5)):
-    ## dynamic time warping
+def clustering_multiple_ts(dtf, idxs, k=None, top=None, figsize=(10,5)):
+    ## preprocessing
     dtf_c = dtf.copy()
-    lst_ts = [utils_filter_ts(dtf_c, name, idxs) for name in dtf_c["ts"].unique()]
-    dtw_sim = utils_dtw_dist(lst_ts, normalized=False, return_sim=False)
+    scaler = preprocessing.StandardScaler()
+    lst_ts = []
+    for name in dtf_c["ts"].unique():
+        ts = utils_filter_ts(dtf_c, name, idxs)
+        ts[ts.columns[0]] = scaler.fit_transform(ts)
+        lst_ts.append(ts)
 
     ## hierarchical clustering
-    ward_links = sci_cluster.hierarchy.ward(dtw_sim)
-    max_dist_allowed_inside_clusters = dtw_sim.max().max()
-    clusters = sci_cluster.hierarchy.fcluster(ward_links, t=max_dist_allowed_inside_clusters, criterion='distance')
+    if k is None:
+        print("--- k not defined: using hierarchical clustering ---")
+        dtw_dist = utils_dtw_dist(lst_ts, normalized=False, return_sim=False)
+        ward_links = sci_cluster.hierarchy.ward(dtw_dist)
+        max_dist_allowed_inside_clusters = dtw_dist.max().max()
+        clusters = sci_cluster.hierarchy.fcluster(ward_links, t=max_dist_allowed_inside_clusters, criterion='distance')
+        print("--- found", len(np.unique(clusters)), "clusters ---")
     
+    ## k-means
+    else:
+        print("---", "k="+str(k)+": using k-means ---")
+        model = TimeSeriesKMeans(n_clusters=k, metric="dtw")
+        clusters = model.fit_predict(to_time_series_dataset(lst_ts))
+
     ## put in the dtf
     other_cols = dtf_c.drop(idxs, axis=1).columns
     dtf_c["cluster"] = clusters
-    k = dtf_c["cluster"].nunique()
-    print("--- found", k, "clusters ---")
 
     ## plot freq
-    ax = dtf_c["cluster"].value_counts().sort_values().plot(kind="barh", title="Cluster distribution", figsize=figsize)
+    ax = dtf_c["cluster"].value_counts().head(top).sort_values().plot(kind="barh", title="Cluster distribution", figsize=figsize)
     total = sum([i.get_width() for i in ax.patches])
     for i in ax.patches:
         ax.text(i.get_width()+.3, i.get_y()+.10, 

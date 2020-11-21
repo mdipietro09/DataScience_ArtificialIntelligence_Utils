@@ -1614,84 +1614,58 @@ def explainer_similarity_classif(tokenizer, nlp, dic_clusters, txt_instance, tok
 #                  STRING MATCHING                                            #
 ###############################################################################
 '''
-Computes the similarity of two strings with textdistance.
+Matches strings with cosine similarity.
 :parameter
-    :param a: string
-    :param b: string
-    :param algo: string - "cosine", "gestalt", "jaccard"
-:return
-    similarity score
-'''
-def utils_strings_similarity(a, b, algo="cosine"):
-    a = re.sub(r'[^\w\s]', '', str(a).lower().strip())
-    b = re.sub(r'[^\w\s]', '', str(b).lower().strip())
-    
-    if algo == "cosine":
-        lst_txt = [a, b]
-        vectorizer = feature_extraction.text.CountVectorizer(lst_txt)
-        matrix = vectorizer.fit_transform(lst_txt).toarray()
-        lst_vectors = [vec for vec in matrix]
-        cosine_sim = metrics.pairwise.cosine_similarity(lst_vectors)[0,1]
-        return cosine_sim
-    
-    elif algo == "gestalt": 
-        return difflib.SequenceMatcher(isjunk=None, a=a, b=b).ratio()
-    
-    elif algo == "jaccard":
-        return 1 - nltk.jaccard_distance(set(a), set(b))
-    
-    else:
-        print('Choose one algo: "cosine", "gestalt", "jaccard"')
-    
-
-
-'''
-Computes the similarity of two strings with textdistance.
-:parameter
-    :param str_name: string - str to lookup
-    :param lst_strings: list - lst with possible matches
-    :param algo: string - "cosine", "gestalt", "jaccard"
+    :param a: string - ex. "my house"
+    :param lst_b: list of strings - ex. ["my", "hi", "house", "sky"]
     :param threshold: num - similarity threshold to consider the match valid
-    :param top: num or None - number of matches to return
+    :param top: num - number of matches to return
 :return
-    dtf_matches - dataframe with matches
+    dtf with 1 column = a, index = lst_b, values = cosine similarity scores
 '''
-def match_strings(stringa, lst_strings, algo="cosine", threshold=0.7, top=1):
-    ## compute similarity
-    dtf_matches = pd.DataFrame([{"stringa":stringa, "match":str_match,
-                                 algo+"_similarity": utils_strings_similarity(stringa, str_match, algo=algo)}
-                                 for str_match in lst_strings])
-    ## put in a dtf
-    dtf_matches = dtf_matches[ dtf_matches[algo+"_similarity"]>=threshold ]
-    dtf_matches = dtf_matches[["stringa", "match", algo+"_similarity"]].sort_values(algo+"_similarity", ascending=False)
-    if top is not None:
-        dtf_matches = dtf_matches.iloc[0:top,:]
-    if len(dtf_matches) == 0:
-        dtf_matches = pd.DataFrame([[stringa,"None",0]], columns=['stringa','match',algo+"_similarity"])
-    return dtf_matches
+def utils_string_matching(a, lst_b, threshold=None, top=None):
+    ## vectorizer ("my house" --> ["my", "hi", "house", "sky"] --> [1, 0, 1, 0])
+    vectorizer = feature_extraction.text.CountVectorizer()
+    X = vectorizer.fit_transform([a]+lst_b).toarray()
+
+    ## cosine similarity (scores a vs lst_b)
+    lst_vectors = [vec for vec in X]
+    cosine_sim = metrics.pairwise.cosine_similarity(lst_vectors)
+    scores = cosine_sim[0][1:]
+
+    ## match
+    match_scores = scores if threshold is None else scores[scores >= threshold]
+    match_idxs = range(len(match_scores)) if threshold is None else [i for i in np.where(scores >= threshold)[0]] 
+    match_strings = [bb[i] for i in match_idxs]
+
+    ## dtf
+    dtf_match = pd.DataFrame(match_scores, columns=[a], index=match_strings)
+    dtf_match = dtf_match[~dtf_match.index.duplicated(keep='first')].sort_values(a, ascending=False).head(top)
+    return dtf_match
 
 
 
 '''
 Vlookup for similar strings.
 :parameter
-    :param strings_array - array or lst
-    :param lookup_array - array or lst
-    :param algo: string - "cosine", "gestalt", "jaccard"
+    :param lst_left - array or lst
+    :param lst_right - array or lst
     :param threshold: num - similarity threshold to consider the match valid
+    :param top: num or None - number of matches to return
 :return
     dtf_matches - dataframe with matches
 '''
-def vlookup(lst_left, lst_right, algo="cosine", threshold=0.7, top=1):
+def vlookup(lst_left, lst_right, threshold=0.7, top=1):
     try:
-        dtf_matches = pd.DataFrame(columns=['stringa', 'match', algo+"_similarity"])
+        dtf_matches = pd.DataFrame(columns=['string','match','similarity'])
         for string in lst_left:
-            dtf_match = match_strings(string, lst_right, algo=algo, threshold=threshold, top=top)
+            dtf_match = utils_string_matching(string, lst_right, threshold, top)
+            dtf_match = dtf_match.reset_index().rename(columns={'index':'match', string:'similarity'})
+            dtf_match["string"] = string
             for i in range(len(dtf_match)):
-                print(string, " --", dtf_match.iloc[i,2], "--> ", dtf_match["match"].values[i])
-            dtf_matches = dtf_matches.append(dtf_match)
-        dtf_matches = dtf_matches.reset_index(drop=True)
-        return dtf_matches
+                print(string, " --", round(dtf_match["similarity"].values[i], 2), "--> ", dtf_match["match"].values[i])
+            dtf_matches = dtf_matches.append(dtf_match, ignore_index=True, sort=False)
+        return dtf_matches[['string','match','similarity']]
 
     except Exception as e:
         print("--- got error ---")

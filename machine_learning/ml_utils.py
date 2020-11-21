@@ -122,7 +122,7 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile
             
         ## num --> density
         else:
-            fig, ax = plt.subplots(nrows=1, ncols=2,  sharex=False, sharey=False, figsize=figsize)
+            fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False, sharey=False, figsize=figsize)
             fig.suptitle(x, fontsize=20)
             ### distribution
             ax[0].title.set_text('distribution')
@@ -166,7 +166,7 @@ Plots a bivariate analysis.
 '''
 def bivariate_plot(dtf, x, y, max_cat=20, figsize=(10,5)):
     try:
-        ## num vs num --> scatter with density + stacked
+        ## num vs num --> stacked + scatter with density
         if (utils_recognize_type(dtf, x, max_cat) == "num") & (utils_recognize_type(dtf, y, max_cat) == "num"):
             ### stacked
             dtf_noNan = dtf[dtf[x].notnull()]  #can't have nan
