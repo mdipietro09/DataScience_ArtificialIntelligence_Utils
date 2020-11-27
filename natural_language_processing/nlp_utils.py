@@ -1636,7 +1636,7 @@ def utils_string_matching(a, lst_b, threshold=None, top=None):
     ## match
     match_scores = scores if threshold is None else scores[scores >= threshold]
     match_idxs = range(len(match_scores)) if threshold is None else [i for i in np.where(scores >= threshold)[0]] 
-    match_strings = [bb[i] for i in match_idxs]
+    match_strings = [lst_b[i] for i in match_idxs]
 
     ## dtf
     dtf_match = pd.DataFrame(match_scores, columns=[a], index=match_strings)
