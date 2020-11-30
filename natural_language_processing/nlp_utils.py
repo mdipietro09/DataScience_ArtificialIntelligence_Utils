@@ -32,12 +32,15 @@ from tensorflow.keras import backend as K
 from lime import lime_text
 import shap
 
-## for W2V
+## for W2V and textRank
 import gensim
 import gensim.downloader as gensim_api
 
 ## for bert
 import transformers
+
+## for summarization
+import rouge
 
 
 
@@ -47,16 +50,23 @@ import transformers
 '''
 Plot univariate and bivariate distributions.
 '''
-def utils_plot_distributions(dtf, x, top=None, y=None, bins=None, figsize=(10,5)):
+def plot_distributions(dtf, x, max_cat=20, top=None, y=None, bins=None, figsize=(10,5)):
     ## univariate
     if y is None:
         fig, ax = plt.subplots(figsize=figsize)
         fig.suptitle(x, fontsize=15)
-        if top is None:
-            dtf[x].reset_index().groupby(x).count().sort_values(by="index").plot(kind="barh", legend=False, ax=ax).grid(axis='x')
-        else:   
-            dtf[x].reset_index().groupby(x).count().sort_values(by="index").tail(top).plot(kind="barh", legend=False, ax=ax).grid(axis='x')
-        ax.set(ylabel=None)
+        ### categorical
+        if dtf[x].nunique() <= max_cat:
+            if top is None:
+                dtf[x].reset_index().groupby(x).count().sort_values(by="index").plot(kind="barh", legend=False, ax=ax).grid(axis='x')
+            else:   
+                dtf[x].reset_index().groupby(x).count().sort_values(by="index").tail(top).plot(kind="barh", legend=False, ax=ax).grid(axis='x')
+            ax.set(ylabel=None)
+        ### numerical
+        else:
+            sns.distplot(dtf[x], hist=True, kde=True, kde_kws={"shade":True}, ax=ax)
+            ax.grid(True)
+            ax.set(xlabel=None, yticklabels=[], yticks=[])
 
     ## bivariate
     else:
@@ -94,7 +104,7 @@ Compute different text length metrics.
 def add_text_length(dtf, column):
     dtf['word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
     dtf['char_count'] = dtf[column].apply(lambda x: sum(len(word) for word in str(x).split(" ")))
-    dtf['sentence_count'] = dtf[column].apply(lambda x: len(str(x).split(".")))
+    dtf['sentence_count'] = dtf[column].apply(lambda x: len(str(x).split(". ")))
     dtf['avg_word_length'] = dtf['char_count'] / dtf['word_count']
     dtf['avg_sentence_lenght'] = dtf['word_count'] / dtf['sentence_count']
     print(dtf[['word_count','char_count','sentence_count','avg_word_length','avg_sentence_lenght']].describe().T[["min","mean","max"]])
@@ -580,7 +590,8 @@ def evaluate_multi_classif(y_test, predicted, predicted_prob, figsize=(15,5)):
         fpr, tpr, thresholds = metrics.roc_curve(y_test_array[:,i], predicted_prob[:,i])
         ax[0].plot(fpr, tpr, lw=3, label='{0} (area={1:0.2f})'.format(classes[i], metrics.auc(fpr, tpr)))
     ax[0].plot([0,1], [0,1], color='navy', lw=3, linestyle='--')
-    ax[0].set(xlim=[-0.05,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")
+    ax[0].set(xlim=[-0.05,1.0], ylim=[0.0,1.05], xlabel='False Positive Rate', 
+              ylabel="True Positive Rate (Recall)", title="Receiver operating characteristic")
     ax[0].legend(loc="lower right")
     ax[0].grid(True)
     
@@ -785,9 +796,11 @@ Train common bigrams and trigrams detectors with gensim
 def create_ngrams_detectors(corpus, grams_join=" ", lst_common_terms=[], min_count=5, top=10, figsize=(10,7)):
     ## fit models
     lst_corpus = utils_preprocess_ngrams(corpus, ngrams=1, grams_join=grams_join)
-    bigrams_detector = gensim.models.phrases.Phrases(lst_corpus, delimiter=grams_join.encode(), common_terms=lst_common_terms, min_count=min_count, threshold=min_count*2)
+    bigrams_detector = gensim.models.phrases.Phrases(lst_corpus, delimiter=grams_join.encode(), common_terms=lst_common_terms, 
+                                                     min_count=min_count, threshold=min_count*2)
     bigrams_detector = gensim.models.phrases.Phraser(bigrams_detector)
-    trigrams_detector = gensim.models.phrases.Phrases(bigrams_detector[lst_corpus], delimiter=grams_join.encode(), common_terms=lst_common_terms, min_count=min_count, threshold=min_count*2)
+    trigrams_detector = gensim.models.phrases.Phrases(bigrams_detector[lst_corpus], delimiter=grams_join.encode(), common_terms=lst_common_terms, 
+                                                      min_count=min_count, threshold=min_count*2)
     trigrams_detector = gensim.models.phrases.Phraser(trigrams_detector)
 
     ## plot
@@ -884,7 +897,10 @@ Plot words in vector space (2d or 3d).
 def plot_w2v(lst_words=None, nlp=None, plot_type="2d", top=20, annotate=True, figsize=(10,5)):
     nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
     fig = plt.figure(figsize=figsize)
-    fig.suptitle("Word: "+lst_words[0], fontsize=12) if len(lst_words) == 1 else fig.suptitle("Words: "+str(lst_words[:5]), fontsize=12)
+    if lst_words is not None:
+        fig.suptitle("Word: "+lst_words[0], fontsize=12) if len(lst_words) == 1 else fig.suptitle("Words: "+str(lst_words[:5]), fontsize=12)
+    else:
+        fig.suptitle("Vocabulary")
     try:
         ## word embedding
         tot_words = lst_words + [tupla[0] for tupla in nlp.most_similar(lst_words, topn=top)] if lst_words is not None else list(nlp.vocab.keys())
@@ -908,7 +924,8 @@ def plot_w2v(lst_words=None, nlp=None, plot_type="2d", top=20, annotate=True, fi
             ax.set(xlabel=None, ylabel=None, xticks=[], xticklabels=[], yticks=[], yticklabels=[])
             if annotate is True:
                 for i in range(len(dtf)):
-                    ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+                    ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), 
+                                xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
         
         ## plot 3d
         elif plot_type == "3d":
@@ -1060,11 +1077,14 @@ def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None,
         n_features, embeddings_dim = weights.shape
         max_seq_lenght = X_train.shape[1]
         ### neural network
-        model = models.Sequential([
-            layers.Embedding(input_dim=n_features, output_dim=embeddings_dim, weights=[weights], input_length=max_seq_lenght, trainable=False),
-            layers.LSTM(units=X_train.shape[1], dropout=0.2),
-            layers.Dense(units=64, activation='relu'),
-            layers.Dense(len(np.unique(y_train)), activation='softmax')])
+        x_in = layers.Input(shape=(X_train.shape[1],))
+        x = layers.Embedding(input_dim=n_features, output_dim=embeddings_dim, weights=[weights], input_length=max_seq_lenght, trainable=False)(x_in)
+        x = layers.Attention()([x,x])
+        x = layers.Bidirectional(layers.LSTM(units=X_train.shape[1], dropout=0.2))(x)
+        x = layers.Dense(units=64, activation='relu')(x)
+        y_out = layers.Dense(len(np.unique(y_train)), activation='softmax')(x)
+        ### compile
+        model = models.Model(x_in, y_out)
         model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
         print(model.summary())
         
@@ -1095,7 +1115,8 @@ Takes the weights of an Attention layer and builds an explainer.
 def explainer_attention(model, tokenizer, txt_instance, lst_ngrams_detectors=[], top=5, figsize=(5,3)):
     ## preprocess txt_instance
     lst_corpus = utils_preprocess_ngrams([re.sub(r'[^\w\s]', '', txt_instance.lower().strip())], lst_ngrams_detectors=lst_ngrams_detectors)
-    X_instance = kprocessing.sequence.pad_sequences(tokenizer.texts_to_sequences(lst_corpus), maxlen=int(model.input.shape[1]), padding="post", truncating="post")
+    X_instance = kprocessing.sequence.pad_sequences(tokenizer.texts_to_sequences(lst_corpus), 
+                                                    maxlen=int(model.input.shape[1]), padding="post", truncating="post")
     
     ## get attention weights
     layer = [layer for layer in model.layers if "attention" in layer.name][0]
@@ -1277,7 +1298,8 @@ def plot_w2v_cluster(dic_words=None, nlp=None, plot_type="2d", annotate=True, fi
             ax.set(xlabel=None, ylabel=None, xticks=[], xticklabels=[], yticks=[], yticklabels=[])
             if annotate is True:
                 for i in range(len(dtf)):
-                    ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
+                    ax.annotate(dtf.index[i], xy=(dtf["x"].iloc[i],dtf["y"].iloc[i]), 
+                                xytext=(5,2), textcoords='offset points', ha='right', va='bottom')
         
         ## plot 3d
         elif plot_type == "3d":
@@ -1492,10 +1514,16 @@ def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=Non
 #               UNSEPERVISED CLASSIFICATION BY SIMILARITY                     #
 ###############################################################################
 '''
-Compute cosine similarity between 2 words or 2 vectors/matrices: cosine_sim = matrix (rows_a x rows_b)
+Compute cosine similarity between 2 strings or 2 vectors/matrices: cosine_sim = matrix (rows_a x rows_b)
+:parameter
+    :param a: string, vector, or matrix
+    :param b: string, vector, or matrix
+    :param nlp: gensim model - used only if a and b are strings
+:return
+    cosine similarity score or matrix
 '''
 def utils_cosine_sim(a, b, nlp=None):
-    ## word vs word = score
+    ## string vs string = score
     if (type(a) is str) or (type(b) is str):
         nlp = gensim_api.load("glove-wiki-gigaword-300") if nlp is None else nlp
         cosine_sim = nlp.similarity(a,b)
@@ -1519,7 +1547,7 @@ def utils_cosine_sim(a, b, nlp=None):
 '''
 Clustering of text to specific classes (Unsupervised Classification by similarity).
 :parameter
-    :param corpus: list - dtf["text"]
+    :param X: feature matrix (num_docs x vector_size)
     :param dic_y: dic label:mean_vector - {'finance':mean_vec, 'esg':mean_vec}
 :return
     predicted_prob, predicted
@@ -1677,4 +1705,44 @@ def vlookup(lst_left, lst_right, threshold=0.7, top=1):
 #                     TEXT SUMMARIZATION                                      #
 ###############################################################################
 '''
+Calculate ROUGE score.
+:parameter
+    :param y_test: string or list
+    :param predicted: string or list
 '''
+def evaluate_summary(y_test, predicted):
+    rouge_score = rouge.Rouge()
+    scores = rouge_score.get_scores(y_test, predicted, avg=True)
+    score = round(scores['rouge-l']['f'], 2)
+    print("rouge:", score)
+
+
+
+'''
+Summarizes corpus with TextRank.
+:parameter
+    :param corpus: list - dtf["text"]
+    :param ratio: length of the summary (ex. 20% of the text)
+:return
+    list of summaries
+'''
+def textrank(corpus, ratio=0.2):
+    lst_summaries = [gensim.summarization.summarize(txt, ratio=ratio) for txt in corpus]
+    return lst_summaries
+
+
+
+'''
+Summarizes corpus with Bart.
+:parameter
+    :param corpus: list - dtf["text"]
+    :param ratio: length of the summary (ex. 20% of the text)
+:return
+    list of summaries
+'''
+def bart(corpus, ratio=0.2):
+    nlp = transformers.pipeline("summarization")
+    lst_summaries = [nlp(txt, max_length=int(len(txt.split())*0.5), 
+                         min_length=int(len(txt.split())*ratio))[0]["summary_text"] 
+                     for txt in corpus]
+    return lst_summaries
