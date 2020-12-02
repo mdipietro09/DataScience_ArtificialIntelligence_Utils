@@ -95,8 +95,10 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 		<img src="_docs/nlp_explain.PNG" width="600" height="50">
 
-- <ins>**[Chatbot](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_chatbot.ipynb)**</ins>
-	* work in progress
+- <ins>**[Text summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
+	* Model
+
+		<img src="_docs/nlp_summary.PNG" width="600" height="50">
 
 ------
 

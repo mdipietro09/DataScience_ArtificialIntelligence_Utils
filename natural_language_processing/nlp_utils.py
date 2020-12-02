@@ -87,7 +87,8 @@ def plot_distributions(dtf, x, max_cat=20, top=None, y=None, bins=None, figsize=
 '''
 Detect language of text.
 '''
-def add_detect_lang(dtf, column):
+def add_detect_lang(data, column):
+    dtf = data.copy()
     dtf['lang'] = dtf[column].apply(lambda x: langdetect.detect(x) if x.strip() != "" else "")
     return dtf
 
@@ -101,13 +102,14 @@ Compute different text length metrics.
 :return
     dtf: input dataframe with 2 new columns
 '''
-def add_text_length(dtf, column):
-    dtf['word_count'] = dtf[column].apply(lambda x: len(str(x).split(" ")))
-    dtf['char_count'] = dtf[column].apply(lambda x: sum(len(word) for word in str(x).split(" ")))
-    dtf['sentence_count'] = dtf[column].apply(lambda x: len(str(x).split(". ")))
+def add_text_length(data, column):
+    dtf = data.copy()
+    dtf['word_count'] = dtf[column].apply(lambda x: len(nltk.word_tokenize(str(x))) )
+    dtf['char_count'] = dtf[column].apply(lambda x: sum(len(word) for word in nltk.word_tokenize(str(x))) )
+    dtf['sentence_count'] = dtf[column].apply(lambda x: len(nltk.sent_tokenize(str(x))) )
     dtf['avg_word_length'] = dtf['char_count'] / dtf['word_count']
     dtf['avg_sentence_lenght'] = dtf['word_count'] / dtf['sentence_count']
-    print(dtf[['word_count','char_count','sentence_count','avg_word_length','avg_sentence_lenght']].describe().T[["min","mean","max"]])
+    print(dtf[['char_count','word_count','sentence_count','avg_word_length','avg_sentence_lenght']].describe().T[["min","mean","max"]])
     return dtf
 
 
@@ -122,7 +124,8 @@ Computes the sentiment using Textblob or Vader.
 :return
     dtf: input dataframe with new sentiment column
 '''
-def add_sentiment(dtf, column, algo="vader", sentiment_range=(-1,1)):
+def add_sentiment(data, column, algo="vader", sentiment_range=(-1,1)):
+    dtf = data.copy()
     ## calculate sentiment
     if algo == "vader":
         vader = SentimentIntensityAnalyzer()
@@ -161,20 +164,29 @@ Preprocess a string.
 :parameter
     :param txt: string - name of column containing text
     :param lst_regex: list - list of regex to remove
+    :param punkt: bool - if True removes punctuations and characters
+    :param lower: bool - if True convert lowercase
     :param lst_stopwords: list - list of stopwords to remove
-    :param flg_stemm: bool - whether stemming is to be applied
-    :param flg_lemm: bool - whether lemmitisation is to be applied
+    :param stemm: bool - whether stemming is to be applied
+    :param lemm: bool - whether lemmitisation is to be applied
 :return
     cleaned text
 '''
-def utils_preprocess_text(txt, lst_regex=None, lst_stopwords=None, flg_stemm=False, flg_lemm=True):
+def utils_preprocess_text(txt, lst_regex=None, punkt=True, lower=True, lst_stopwords=None, stemm=False, lemm=True):
     ## regex (in case, before processing)
     if lst_regex is not None: 
         for regex in lst_regex:
             txt = re.sub(regex, '', txt)
     
-    ## clean (convert to lowercase and remove punctuations and characters and then strip)
-    txt = re.sub(r'[^\w\s]', '', str(txt).lower().strip())
+    ## clean 
+    ### separate sentences with '. '
+    txt = re.sub(r'\.(?=[^ \W\d])', '. ', str(txt))
+    ### remove punctuations and characters
+    txt = re.sub(r'[^\w\s]', '', txt) if punkt is True else txt
+    ### strip
+    txt = " ".join([word.strip() for word in txt.split()])
+    ### lowercase
+    txt = txt.lower() if lower is True else txt
             
     ## Tokenize (convert from string to list)
     lst_txt = txt.split()
@@ -184,12 +196,12 @@ def utils_preprocess_text(txt, lst_regex=None, lst_stopwords=None, flg_stemm=Fal
         lst_txt = [word for word in lst_txt if word not in lst_stopwords]
                 
     ## Stemming (remove -ing, -ly, ...)
-    if flg_stemm == True:
+    if stemm is True:
         ps = nltk.stem.porter.PorterStemmer()
         lst_txt = [ps.stem(word) for word in lst_txt]
                 
     ## Lemmatization (convert the word into root word)
-    if flg_lemm == True:
+    if lemm is True:
         lem = nltk.stem.wordnet.WordNetLemmatizer()
         lst_txt = [lem.lemmatize(word) for word in lst_txt]
 
@@ -211,10 +223,12 @@ Adds a column of preprocessed text.
 :return
     dtf: input dataframe with two new columns
 '''
-def add_preprocessed_text(dtf, column, lst_regex=None, lst_stopwords=None, flg_stemm=False, flg_lemm=True, remove_na=True):
+def add_preprocessed_text(data, column, lst_regex=None, punkt=False, lower=False, lst_stopwords=None, stemm=False, lemm=False, remove_na=True):
+    dtf = data.copy()
+
     ## apply preprocess
     dtf = dtf[ pd.notnull(dtf[column]) ]
-    dtf[column+"_clean"] = dtf[column].apply(lambda x: utils_preprocess_text(x, lst_regex, lst_stopwords, flg_stemm, flg_lemm))
+    dtf[column+"_clean"] = dtf[column].apply(lambda x: utils_preprocess_text(x, lst_regex, punkt, lower, lst_stopwords, stemm, lemm))
     
     ## residuals
     dtf["check"] = dtf[column+"_clean"].apply(lambda x: len(x))
@@ -287,7 +301,9 @@ Adds a column with word frequency.
 :return
     dtf: input dataframe with new columns
 '''
-def add_word_freq(dtf, column, lst_words, freq="count"):
+def add_word_freq(data, column, lst_words, freq="count"):
+    dtf = data.copy()
+
     ## query
     print("found records:")
     print([word+": "+str(len(dtf[dtf[column].str.contains(word)])) for word in lst_words])
@@ -413,8 +429,9 @@ Apply spacy NER model and add tag features.
 :return
     dtf
 '''
-def add_ner_spacy(dtf, column, ner=None, lst_tag_filter=None, grams_join="_", create_features=True):
+def add_ner_spacy(data, column, ner=None, lst_tag_filter=None, grams_join="_", create_features=True):
     ner = spacy.load("en_core_web_lg") if ner is None else ner
+    dtf = data.copy()
 
     ## tag text and exctract tags
     print("--- tagging ---")
@@ -1701,6 +1718,55 @@ def vlookup(lst_left, lst_right, threshold=0.7, top=1):
 
 
 
+'''
+Highlights the matched strings in text.
+:parameter
+    :param a: string - raw text
+    :param b: string - raw text
+    :param both: bool - search a in b and, if True, viceversa
+    :param sentences: bool - if True search only strings
+:return
+    text html, it can be visualized on notebook with display(HTML(text))
+'''
+def display_string_matching(a, b, both=True, sentences=True, titles=[]):
+    if sentences is True:
+        lst_a, lst_b = nltk.sent_tokenize(a), nltk.sent_tokenize(b)
+    else:
+        lst_a, lst_b = a.split(), b.split()       
+    
+    ## highlight a
+    first_text = []
+    for i in lst_a:
+        if i.lower() in [z.lower() for z in lst_b]:
+            first_text.append('<span style="background-color:rgba(255,215,0,0.3);">' + i + '</span>')
+        else:
+            first_text.append(i)
+    first_text = ' '.join(first_text)
+    
+    ## highlight b
+    second_text = []
+    if both is True:
+        for i in lst_b:
+            if i in [z.lower() for z in lst_a]:
+                second_text.append('<span style="background-color:rgba(255,215,0,0.3);">' + i + '</span>')
+            else:
+                second_text.append(i)
+    else:
+        second_text.append(b) 
+    second_text = ' '.join(second_text)
+    
+    ## concatenate
+    if len(titles) > 0:
+        first_text = "<strong>"+titles[0]+"</strong><br>"+first_text
+    if len(titles) > 1:
+        second_text = "<strong>"+titles[1]+"</strong><br>"+second_text
+    else:
+        second_text = "---"*65+"<br><br>"+second_text
+    final_text = first_text +'<br><br>'+ second_text
+    return final_text
+
+
+
 ###############################################################################
 #                     TEXT SUMMARIZATION                                      #
 ###############################################################################
@@ -1713,8 +1779,11 @@ Calculate ROUGE score.
 def evaluate_summary(y_test, predicted):
     rouge_score = rouge.Rouge()
     scores = rouge_score.get_scores(y_test, predicted, avg=True)
-    score = round(scores['rouge-l']['f'], 2)
-    print("rouge:", score)
+    score_1 = round(scores['rouge-1']['f'], 2)
+    score_2 = round(scores['rouge-2']['f'], 2)
+    score_L = round(scores['rouge-l']['f'], 2)
+    print("rouge1:", score_1, "| rouge2:", score_2, "| rougeL:", score_2, 
+          "--> avg rouge:", round(np.mean([score_1,score_2,score_L]), 2))
 
 
 
@@ -1742,7 +1811,8 @@ Summarizes corpus with Bart.
 '''
 def bart(corpus, ratio=0.2):
     nlp = transformers.pipeline("summarization")
-    lst_summaries = [nlp(txt, max_length=int(len(txt.split())*0.5), 
-                         min_length=int(len(txt.split())*ratio))[0]["summary_text"] 
+    lst_summaries = [nlp(txt, max_length=int(len(txt.split())*ratio), 
+                              min_length=int(len(txt.split())*ratio)
+                        )[0]["summary_text"].replace(" .", ".")
                      for txt in corpus]
     return lst_summaries
