@@ -1,4 +1,4 @@
-# Data Science & Artifical Intelligence utils functions in Python
+# Data Science & Artifical Intelligence examples (Python)
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
 Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* \
@@ -65,7 +65,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 
 - <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
-	* Model
+	* Distributions
 
 		<img src="_docs/ts_param.PNG" width="300" height="150">
 
