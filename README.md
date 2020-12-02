@@ -43,7 +43,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 
 - <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_clustering.ipynb)**</ins>
-	* 
+	* Model
 
 		<img src="_docs/geo_cluster.gif" width="400" height="250">
 
@@ -65,13 +65,13 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 
 - <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
-	* 
+	* Model
 
 		<img src="_docs/ts_param.PNG" width="300" height="150">
 
 
 - <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_multiple_series.ipynb)**</ins>
-	* 
+	* Clustering
 
 		<img src="_docs/ts_clustering.PNG" width="400" height="150">
 
@@ -93,12 +93,12 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 	* Explainability 
 
-		<img src="_docs/nlp_explain.PNG" width="600" height="50">
+		<img src="_docs/nlp_explain.PNG" width="500" height="50">
 
 - <ins>**[Text summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
-	* 
+	* Model
 
-		<img src="_docs/nlp_summary.PNG" width="400" height="200">
+		<img src="_docs/nlp_summary.PNG" width="500" height="100">
 
 ------
 
