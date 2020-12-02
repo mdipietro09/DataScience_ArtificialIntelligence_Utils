@@ -43,7 +43,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 
 - <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_clustering.ipynb)**</ins>
-	* Model
+	* Geospatial Interactive Maps
 
 		<img src="_docs/geo_cluster.gif" width="400" height="250">
 
