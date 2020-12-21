@@ -955,45 +955,47 @@ def utils_plot_keras_training(training):
     
     
 '''
-Preprocess a ts partitioning into X and y.
+Preprocess a ts for LSTM partitioning into X and y.
 :parameter
     :param ts: pandas timeseries
     :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
     :param scaler: sklearn scaler object - if None is fitted
     :param exog: pandas dataframe or numpy array
 :return
-    X, y, scaler
+    X with shape: (len(ts)-s, s, features)
+    y with shape: (len(ts)-s,)
+    the fitted scaler
 '''
-def utils_preprocess_ts(ts, s, scaler=None, exog=None):
+def utils_preprocess_lstm(ts, s, scaler=None, exog=None):
     ## scale
     if scaler is None:
         scaler = preprocessing.MinMaxScaler(feature_range=(0,1))
     ts_preprocessed = scaler.fit_transform(ts.values.reshape(-1,1)).reshape(-1)        
     
-    ## create X,y for train
+    ## create X (N,s,x)  and y (N,)
     ts_preprocessed = kprocessing.sequence.TimeseriesGenerator(data=ts_preprocessed, 
                                                                targets=ts_preprocessed, 
                                                                length=s, batch_size=1)
     lst_X, lst_y = [], []
     for i in range(len(ts_preprocessed)):
         xi, yi = ts_preprocessed[i]
-        lst_X.append(xi)
-        lst_y.append(yi)
-    X = np.array(lst_X)
+        lst_X.append(xi[0])
+        lst_y.append(yi[0])
+    X = np.expand_dims(np.array(lst_X), axis=2)
     y = np.array(lst_y)
     return X, y, scaler
 
 
 
 '''
-Get fitted values.
+Get fitted values from LSTM.
 '''
 def utils_fitted_lstm(ts, model, scaler, exog=None):
     ## scale
-    ts_preprocessed = scaler.fit_transform(ts.values.reshape(-1,1)).reshape(-1) 
+    s = model.input_shape[1]
+    ts_preprocessed = scaler.transform(ts.values.reshape(-1,1)).reshape(-1) 
     
     ## create Xy, predict = fitted
-    s = model.input_shape[-1]
     lst_fitted = [np.nan]*s
     for i in range(len(ts_preprocessed)):
         end_ix = i + s
@@ -1001,7 +1003,7 @@ def utils_fitted_lstm(ts, model, scaler, exog=None):
             break
         X = ts_preprocessed[i:end_ix]
         X = np.array(X)
-        X = np.reshape(X, (1,1,X.shape[0]))
+        X = np.reshape(X, (1,s,1))
         fit = model.predict(X)
         fit = scaler.inverse_transform(fit)[0][0]
         lst_fitted.append(fit)
@@ -1010,20 +1012,20 @@ def utils_fitted_lstm(ts, model, scaler, exog=None):
 
 
 '''
-Predict ts using previous predictions.
+Predict ts with LSTM using previous predictions.
 '''
-def utils_predict_lstm(ts, model, scaler, pred_ahead, exog=None):
+def utils_predict_lstm(last_s_obs, model, scaler, pred_ahead, exog=None):
     ## scale
-    s = model.input_shape[-1]
-    ts_preprocessed = list(scaler.fit_transform(ts[-s:].values.reshape(-1,1))) 
+    s = model.input_shape[1]
+    ts_preprocessed = list(scaler.transform(last_s_obs.values.reshape(-1,1))) 
     
     ## predict, append, re-predict
     lst_preds = []
     for i in range(pred_ahead):
         X = np.array(ts_preprocessed[len(ts_preprocessed)-s:])
-        X = np.reshape(X, (1,1,X.shape[0]))
+        X = np.reshape(X, (1,s,1))
         pred = model.predict(X)
-        ts_preprocessed.append(pred)
+        ts_preprocessed.append(pred[0])
         pred = scaler.inverse_transform(pred)[0][0]
         lst_preds.append(pred)
     return np.array(lst_preds)
@@ -1031,20 +1033,21 @@ def utils_predict_lstm(ts, model, scaler, pred_ahead, exog=None):
 
 
 '''
-Fit Long short-term memory neural network.
+Fit Long Short-Term Memory neural network.
 :parameter
     :param ts: pandas timeseries
     :param exog: pandas dataframe or numpy array
     :param s: num - number of observations per seasonal (ex. 7 for weekly seasonality with daily data, 12 for yearly seasonality with monthly data)
 :return
-    generator, scaler 
+    dtf with predictons and the model 
 '''
 def fit_lstm(ts_train, ts_test, model, exog=None, s=20, epochs=100, conf=0.95, figsize=(15,5)):
     ## check
     print("Seasonality: using the last", s, "observations to predict the next 1")
     
     ## preprocess train
-    X_train, y_train, scaler = utils_preprocess_ts(ts_train, scaler=None, exog=exog, s=s)
+    X_train, y_train, scaler = utils_preprocess_lstm(ts_train, scaler=None, exog=exog, s=s)
+    print("--- X:", X_train.shape, "| y:", y_train.shape, "---")
     
     ## lstm
     if model is None:
@@ -1062,7 +1065,8 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, epochs=100, conf=0.95, f
     dtf_train["model"] = dtf_train["model"].fillna(method='bfill')
     
     ## test
-    preds = utils_predict_lstm(ts_train[-s:], training.model, scaler, pred_ahead=len(ts_test), exog=None)
+    last_s_obs = ts_train[-s:]
+    preds = utils_predict_lstm(last_s_obs, training.model, scaler, pred_ahead=len(ts_test), exog=None)
     dtf_test = ts_test.to_frame(name="ts").merge(pd.DataFrame(data=preds, index=ts_test.index, columns=["forecast"]),
                                                  how='left', left_index=True, right_index=True)
     
@@ -1087,13 +1091,13 @@ def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, freq="D
     ## model
     if model is None:
         model = models.Sequential([
-            layers.LSTM(input_shape=(1,7), units=50, activation='relu', return_sequences=False),
+            layers.LSTM(input_shape=(1,1), units=50, activation='relu', return_sequences=False),
             layers.Dense(1) ])
         model.compile(optimizer='adam', loss='mean_absolute_error')
 
     ## fit
-    s = model.input_shape[-1]
-    X, y, scaler = utils_preprocess_ts(ts, scaler=None, exog=None, s=s)
+    s = model.input_shape[1]
+    X, y, scaler = utils_preprocess_lstm(ts, scaler=None, exog=None, s=s)
     training = model.fit(x=X, y=y, batch_size=1, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
     dtf = ts.to_frame(name="ts")
     dtf["model"] = utils_fitted_lstm(ts, training.model, scaler, None)
@@ -1103,7 +1107,8 @@ def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, freq="D
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
-    preds = utils_predict_lstm(ts[-s:], training.model, scaler, pred_ahead=len(index), exog=None)
+    last_s_obs = ts[-s:]
+    preds = utils_predict_lstm(last_s_obs, training.model, scaler, pred_ahead=len(index), exog=None)
     dtf = dtf.append(pd.DataFrame(data=preds, index=index, columns=["forecast"]))
     
     ## add intervals and plot
@@ -1375,62 +1380,6 @@ def apply_seasonality(ts, dic_seasonality, seastypes=[], plot=True, figsize=(15,
 
         if s == "moy":
             ts = ts * [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
-                       for i in ts.index.month]
-            if plot is True:
-                ts.plot(ax=ax, grid=True, color="tomato", label="moy")
-
-    if plot is True:
-        ts.plot(ax=ax, grid=True, color="red", label="new ts", linewidth=3)
-        ax.legend(loc="best")
-        ax.set(xlabel=None)
-        plt.show()
-    return ts
-
-
-
-'''
-Remove the extracted seasonality (leave the trend component only)
-:parameter
-    :param ts: pandas series with datetime index
-    :param dic_seasonality: dictionary with day-of-week, day-of-month, day-of-year, week-of-year, month-of-year
-    :param seastypes: list - ["dow", "dom", "doy", "woy", "moy"], if empty it applies all
-    :param plot: bool - if True plots every step
-:return
-    input ts with new values
-'''
-def remove_seasonality(ts, dic_seasonality, seastypes=[], plot=True, figsize=(15,5)):
-    seastypes = dic_seasonality.keys() if len(seastypes) == 0 else seastypes
-
-    if plot is True:
-        ax = ts.plot(grid=True, color="black", label="ts", title="Applying Seasonality", linewidth=3, figsize=figsize)
-
-    for s in seastypes:
-        if s == "dow":
-            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
-                       for i in ts.index.weekday]
-            if plot is True:
-                ts.plot(ax=ax, grid=True, color="orange", label="dow")   
-
-        if s == "dom":
-            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
-                       for i in ts.index.day]
-            if plot is True:
-                ts.plot(ax=ax, grid=True, color="green", label="dom")
-
-        if s == "doy":
-            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1 
-                       for i in ts.index.dayofyear]
-            if plot is True:
-                ts.plot(ax=ax, grid=True, color="blue", label="doy")
-
-        if s == "woy":
-            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
-                       for i in ts.index.week]
-            if plot is True:
-                ts.plot(ax=ax, grid=True, color="darkviolet", label="woy")
-
-        if s == "moy":
-            ts = ts / [dic_seasonality[s].loc[i] if i in dic_seasonality[s].index else 1
                        for i in ts.index.month]
             if plot is True:
                 ts.plot(ax=ax, grid=True, color="tomato", label="moy")

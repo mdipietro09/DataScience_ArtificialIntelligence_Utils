@@ -522,3 +522,12 @@ def utils_imgs_similarity(a, b, algo="sift", plot=False, plot_points=False, figs
 '''
 def match_imgs():
     return 0
+
+
+
+###############################################################################
+#                       GENERATIVE MODELS                                     #
+###############################################################################
+'''
+'''
+def 

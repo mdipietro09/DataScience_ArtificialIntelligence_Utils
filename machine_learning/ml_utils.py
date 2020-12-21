@@ -37,6 +37,12 @@ import geopy
 ###############################################################################
 '''
 Recognize whether a column is numerical or categorical.
+:parameter
+    :param dtf: dataframe - input data
+    :param col: str - name of the column to analyze
+    :param max_cat: num - max number of unique values to recognize a column as categorical
+:return
+    "cat" if the column is categorical and "num" otherwise
 '''
 def utils_recognize_type(dtf, col, max_cat=20):
     if (dtf[col].dtype == "O") | (dtf[col].nunique() < max_cat):
@@ -50,7 +56,7 @@ def utils_recognize_type(dtf, col, max_cat=20):
 Get a general overview of a dataframe.
 :parameter
     :param dtf: dataframe - input data
-    :param max_cat: num - to recognize column type
+    :param max_cat: num - mininum number of recognize column type
 '''
 def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
     ## recognize column type
