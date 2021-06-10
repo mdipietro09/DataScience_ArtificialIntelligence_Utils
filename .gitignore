@@ -2,3 +2,4 @@ __pycache__/
 .spyproject/
 .ipynb_checkpoints/
 fs/
+*DS_Store

@@ -11,6 +11,7 @@ statsmodels==0.10.1
 ## machine learning
 scikit-learn==0.22
 imbalanced-learn==0.6.2
+ppscore==0.0.2
 ## deep learning
 tensorflow==1.13.2
 minisom==2.2.6

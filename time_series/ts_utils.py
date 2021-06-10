@@ -22,7 +22,7 @@ import arch
 from tensorflow.keras import models, layers, preprocessing as kprocessing
 
 ## for prophet
-from fbprophet import Prophet
+#from fbprophet import Prophet
 pd.plotting.register_matplotlib_converters()
 
 ## for parametric fit and resistence/support
@@ -1564,12 +1564,12 @@ Select a single ts from multiple dtf.
 :parameter
     :param dtf: pandas dataframe ts x dates, "ts" column has the series names
     :param name: str - name of ts to filter
-    :param idxs: list - columns with ts values (ex. list of dates)
+    :param idxs: list - columns with ts values (ex. list of dates), if None all cols are taken except the first one
 :return
     pandas series with idxs as index and name column with values
 '''
-def utils_filter_ts(dtf, name, idxs):
-    ts = dtf[dtf["ts"]==name][idxs].T
+def utils_filter_ts(dtf, name, idxs=None):
+    ts = dtf[dtf["ts"]==name][idxs].T if idxs is not None else dtf[dtf["ts"]==name][dtf.columns[1:]].T
     ts.columns = [name]
     ts.index = pd.to_datetime(ts.index)
     return ts
@@ -1773,7 +1773,7 @@ def clustering_multiple_ts(dtf, idxs, k=None, top=None, figsize=(10,5)):
     ## hierarchical clustering
     if k is None:
         print("--- k not defined: using hierarchical clustering ---")
-        dtw_dist = utils_dtw_dist(lst_ts, normalized=False, return_sim=False)
+        dtw_dist = utils_dtw_dist(lst_ts, return_sim=False)
         ward_links = sci_cluster.hierarchy.ward(dtw_dist)
         max_dist_allowed_inside_clusters = dtw_dist.max().max()
         clusters = sci_cluster.hierarchy.fcluster(ward_links, t=max_dist_allowed_inside_clusters, criterion='distance')
