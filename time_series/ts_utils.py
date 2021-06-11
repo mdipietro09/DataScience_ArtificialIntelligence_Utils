@@ -447,7 +447,7 @@ def utils_generate_indexdate(start, end=None, n=None, freq="D"):
     else:
         index = pd.date_range(start=start, periods=n, freq=freq)
     index = index[1:]
-    print("--- generating index date --> start:", index[0], "| end:", index[-1], "| len:", len(index), "---")
+    print("--- generating index date --> freq:", freq, "| start:", index[0], "| end:", index[-1], "| len:", len(index), "---")
     return index
 
 
@@ -552,12 +552,11 @@ Forecast unknown future.
     :param ts: pandas series
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 :return
     dtf with columns "ts", "model", "residuals", "lower", "forecast", "upper" (No error)
 '''
-def forecast_rw(ts, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_rw(ts, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## fit
     diff_ts = ts - ts.shift(1)
     sigma = diff_ts.std()
@@ -566,6 +565,7 @@ def forecast_rw(ts, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, fig
                                        how='left', left_index=True, right_index=True)
     
     ## index
+    freq = ts.index.inferred_freq[0]
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
@@ -606,6 +606,7 @@ def tune_expsmooth_model(ts_train, s=7, val_size=0.2, scoring=None, top=None, fi
     seasonal = ['add', 'mult', None]
 
     ## grid search
+    freq = ts_train.index.inferred_freq[0]
     dtf_search = pd.DataFrame(columns=["combo","score","model"])
     combinations = []
     for t in trend:
@@ -616,7 +617,7 @@ def tune_expsmooth_model(ts_train, s=7, val_size=0.2, scoring=None, top=None, fi
                     combinations.append(combo)
                     try:
                         ### fit
-                        model = smt.ExponentialSmoothing(dtf_fit, trend=t, damped=d, seasonal=ss, seasonal_periods=s).fit()
+                        model = smt.ExponentialSmoothing(dtf_fit, trend=t, damped=d, seasonal=ss, seasonal_periods=s, freq=freq).fit()
                         ### predict
                         pred =  model.forecast(len(dtf_val))
                         if pred.isna().sum() == 0:
@@ -683,7 +684,8 @@ def fit_expsmooth(ts_train, ts_test, trend="additive", damped=False, seasonal="m
     print(check_seasonality)
     
     ## train
-    model = smt.ExponentialSmoothing(ts_train, trend=trend, damped=damped, seasonal=seasonal, seasonal_periods=s).fit(factors[0], factors[1], factors[2])
+    freq = ts_train.index.inferred_freq[0]
+    model = smt.ExponentialSmoothing(ts_train, trend=trend, damped=damped, seasonal=seasonal, seasonal_periods=s, freq=freq).fit(factors[0], factors[1], factors[2])
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = model.fittedvalues
     
@@ -888,10 +890,9 @@ Forecast unknown future with sarimax or expsmooth.
     :param model: model object
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_autoregressive(ts, model=None, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_autoregressive(ts, model=None, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## model
     model = smt.SARIMAX(ts, order=(1,1,1), seasonal_order=(0,0,0,0)).fit() if model is None else model 
 
@@ -901,6 +902,7 @@ def forecast_autoregressive(ts, model=None, pred_ahead=None, end=None, freq="D",
     dtf["residuals"] = dtf["ts"] - dtf["model"]
     
     ## index
+    freq = ts.index.inferred_freq[0]
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
@@ -1084,10 +1086,9 @@ Forecast unknown future.
     :param model: model object
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## model
     if model is None:
         model = models.Sequential([
@@ -1104,6 +1105,7 @@ def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, freq="D
     dtf["model"] = dtf["model"].fillna(method='bfill')
     
     ## index
+    freq = ts.index.inferred_freq[0]
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
@@ -1127,11 +1129,10 @@ Fits prophet on Business Data:
     :param dtf_train: pandas Dataframe with columns 'ds' (dates), 'y' (values), 'cap' (capacity if growth="logistic"), other additional regressor
     :param dtf_test: pandas Dataframe with columns 'ds' (dates), 'y' (values), 'cap' (capacity if growth="logistic"), other additional regressor
     :param lst_exog: list - names of variables
-    :param freq: str - "D" daily, "M" monthly, "Y" annual, "MS" monthly start ...
 :return
     dtf with predictons and the model
 '''
-def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", conf=0.95, figsize=(15,10)):
+def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, conf=0.95, figsize=(15,10)):
     ## setup prophet
     if model is None:
         model = Prophet(growth="linear", changepoints=None, n_changepoints=25, seasonality_mode="multiplicative",
@@ -1145,6 +1146,7 @@ def fit_prophet(dtf_train, dtf_test, lst_exog=None, model=None, freq="D", conf=0
     model.fit(dtf_train)
     
     ## test
+    freq = dtf_train.set_index("ds").index.inferred_freq[0]
     dtf_prophet = model.make_future_dataframe(periods=len(dtf_test), freq=freq, include_history=True)
     
     if model.growth == "logistic":
@@ -1174,10 +1176,9 @@ Forecast unknown future.
     :param model: model object
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_prophet(dtf, model=None, pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_prophet(dtf, model=None, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## model
     model = Prophet() if model is None else model
 
@@ -1185,6 +1186,7 @@ def forecast_prophet(dtf, model=None, pred_ahead=None, end=None, freq="D", conf=
     model.fit(dtf)
     
     ## index
+    freq = dtf.set_index("ds").index.inferred_freq[0]
     index = utils_generate_indexdate(start=dtf["ds"].values[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
@@ -1279,16 +1281,16 @@ Forecast unknown future.
     :param model: list of optim params
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_curve(ts, f, model, pred_ahead=None, end=None, freq="D", zoom=30, figsize=(15,5)):
+def forecast_curve(ts, f, model, pred_ahead=None, end=None, zoom=30, figsize=(15,5)):
     ## fit
     fitted = utils_predict_curve(model, f, X=np.arange(len(ts)))
     dtf = ts.to_frame(name="ts")
     dtf["model"] = fitted
     
     ## index
+    freq = ts.index.inferred_freq[0]
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     
     ## forecast
@@ -1406,7 +1408,8 @@ From scratch model with Trend + Seasonality (independent from s) + Level + Resis
     series with fitted_values, series with preds
 '''
 def custom_model(ts, pred_ahead, trend=False, seasonality_types=None, level_window=1, sup_res_windows=(None,None), floor_cap=(False,False), plot=True, figsize=(15,5)):
-    index = utils_generate_indexdate(start=ts.index[-1], n=pred_ahead+1)
+    freq = ts.index.inferred_freq[0]
+    index = utils_generate_indexdate(start=ts.index[-1], n=pred_ahead+1, freq=freq)
     
     ## 1. Trend
     ### fitted
@@ -1428,7 +1431,7 @@ def custom_model(ts, pred_ahead, trend=False, seasonality_types=None, level_wind
     
     ## 2. Seasonality
     if seasonality_types is not None:
-        dic_seasonality = extract_seasonality(ts)
+        dic_seasonality = extract_seasonality(ts, freq=freq)
         dtf["model"] = apply_seasonality(dtf["model"], dic_seasonality, seasonality_types, plot=False)
         dtf_preds["forecast"] = apply_seasonality(dtf_preds["forecast"], dic_seasonality, seasonality_types, plot=False)
     
@@ -1537,11 +1540,11 @@ Forecast unknown future with Custom model.
     :param ts: pandas series
     :param pred_ahead: number of observations to forecast (ex. pred_ahead=30)
     :param end: string - date to forecast (ex. end="2016-12-31")
-    :param freq: None or str - 'B' business day, 'D' daily, 'W' weekly, 'M' monthly, 'A' annual, 'Q' quarterly
     :param zoom: for plotting
 '''
-def forecast_custom_model(ts, trend=False, seasonality_types=None, level_window=None, sup_res_windows=(None,None), floor_cap=(False,False), pred_ahead=None, end=None, freq="D", conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_custom_model(ts, trend=False, seasonality_types=None, level_window=None, sup_res_windows=(None,None), floor_cap=(False,False), pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## fit / forecast
+    freq = ts.index.inferred_freq[0]
     index = utils_generate_indexdate(start=ts.index[-1], end=end, n=pred_ahead, freq=freq)
     fitted_values, preds = custom_model(ts, pred_ahead=len(index), trend=trend, seasonality_types=seasonality_types, 
                                         level_window=level_window, sup_res_windows=sup_res_windows, floor_cap=floor_cap, plot=False)
@@ -1773,9 +1776,9 @@ def clustering_multiple_ts(dtf, idxs, k=None, top=None, figsize=(10,5)):
     ## hierarchical clustering
     if k is None:
         print("--- k not defined: using hierarchical clustering ---")
-        dtw_dist = utils_dtw_dist(lst_ts, return_sim=False)
-        ward_links = sci_cluster.hierarchy.ward(dtw_dist)
-        max_dist_allowed_inside_clusters = dtw_dist.max().max()
+        dtw_matrix = utils_dtw_dist(lst_ts, return_sim=False)
+        ward_links = sci_cluster.hierarchy.ward(dtw_matrix)
+        max_dist_allowed_inside_clusters = dtw_matrix.mean().mean()*dtw_matrix.max().max()/dtw_matrix.min().min()
         clusters = sci_cluster.hierarchy.fcluster(ward_links, t=max_dist_allowed_inside_clusters, criterion='distance')
         print("--- found", len(np.unique(clusters)), "clusters ---")
     
