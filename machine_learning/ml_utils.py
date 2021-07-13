@@ -38,7 +38,7 @@ import geopy
 '''
 Recognize whether a column is numerical or categorical.
 :parameter
-    :param dtf: dataframe - input data
+    :param dtf: dataframe - input data
     :param col: str - name of the column to analyze
     :param max_cat: num - max number of unique values to recognize a column as categorical
 :return
@@ -55,7 +55,7 @@ def utils_recognize_type(dtf, col, max_cat=20):
 '''
 Get a general overview of a dataframe.
 :parameter
-    :param dtf: dataframe - input data
+    :param dtf: dataframe - input data
     :param max_cat: num - mininum number of recognize column type
 '''
 def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
@@ -95,9 +95,50 @@ def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
 
 
 '''
+Check the primary key of a dtf
+:parameter
+    :param dtf: dataframe - input data
+    :param pk: str - column name
+'''
+def check_pk(dtf, pk):
+    unique_pk, len_dtf = dtf[pk].nunique(), len(dtf)
+    check = "unique "+pk+": "+str(unique_pk)+"  |  len dtf: "+str(len_dtf)
+    if unique_pk == len_dtf:
+        msg = "OK!!!  "+check
+        print(msg)
+    else:
+        msg = "WARNING!!!  "+check
+        ERROR = dtf.groupby(pk).size().reset_index(name="count").sort_values(by="count", ascending=False)
+        print(msg)
+        print("Example: ", pk, "==", ERROR.iloc[0,0])
+
+
+
+'''
+Moves columns into a dtf.
+:parameter
+    :param dtf: dataframe - input data
+    :param lst_cols: list - names of the columns that must be moved
+    :param where: str - "front" or "end"
+:return
+    dtf with moved columns
+'''
+def pop_columns(dtf, lst_cols, where="front"):
+    current_cols = dtf.columns.tolist()
+    for col in lst_cols:    
+        current_cols.pop( current_cols.index(col) )
+    if where == "front":
+        dtf = dtf[lst_cols + current_cols]
+    elif where == "end":
+        dtf = dtf[current_cols + lst_cols]
+    return dtf
+
+
+
+'''
 Plots the frequency distribution of a dtf column.
 :parameter
-    :param dtf: dataframe - input data
+    :param dtf: dataframe - input data
     :param x: str - column name
     :param max_cat: num - max number of uniques to consider a numerical variable as categorical
     :param top: num - plot setting
@@ -107,7 +148,7 @@ Plots the frequency distribution of a dtf column.
     :param box_logscale: logic
     :param figsize: tuple - plot settings
 '''
-def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile_breaks=(0,10), box_logscale=False, figsize=(10,5)):
+def freqdist_plot(dtf, x, max_cat=20, top=None, show_perc=True, bins=100, quantile_breaks=(0,10), box_logscale=False, figsize=(10,5)):
     try:
         ## cat --> freq
         if utils_recognize_type(dtf, x, max_cat) == "cat":   
@@ -165,7 +206,7 @@ def freqdist_plot(dtf, x, max_cat=20, top=20, show_perc=True, bins=100, quantile
 '''
 Plots a bivariate analysis.
 :parameter
-    :param dtf: dataframe - input data
+    :param dtf: dataframe - input data
     :param x: str - column
     :param y: str - column
     :param max_cat: num - max number of uniques to consider a numerical variable as categorical
@@ -310,57 +351,6 @@ def cross_distributions(dtf, x1, x2, y, max_cat=20, figsize=(10,5)):
         fig.colorbar(plot3d, shrink=0.5, aspect=5, label=y)
         ax.set(xlabel=x1, ylabel=x2, zlabel=y)
         plt.show()
-
-
-     
-'''
-Moves columns into a dtf.
-:parameter
-    :param dtf: dataframe - input data
-    :param lst_cols: list - names of the columns that must be moved
-    :param where: str - "front" or "end"
-:return
-    dtf with moved columns
-'''
-def pop_columns(dtf, lst_cols, where="end"):
-    current_cols = dtf.columns.tolist()
-    for col in lst_cols:    
-        current_cols.pop( current_cols.index(col) )
-    if where == "front":
-        dtf = dtf[lst_cols + current_cols]
-    else:
-        dtf = dtf[current_cols + lst_cols]
-    return dtf
-
-
-
-'''
-Checks the primary key of a table and saves it as csv.
-:parameter
-    :param dtf: dataframe - input data
-    :param pk: str - column name
-    :param save: logic - want to save the file?
-    :param path: str - dirpath
-    :param dtf_name: str - csv name
-:return
-    the duplicated keys (in case pk is not unique)
-'''
-def CheckAndSave(dtf, pk, save=False, path=None, dtf_name=None):
-    try:
-        if len(dtf.index) == dtf[pk].nunique():
-            print("Rows:", len(dtf.index), " = ", "Pk:", dtf[pk].nunique(), "--> OK")
-            if save == True:
-                dtf.to_csv(path_or_buf= path+dtf_name+".csv", sep=',', decimal=".", header=True, index=False)
-                print("saved.")
-        else:
-            print("Rows:", len(dtf.index), " != ", "Pk:", dtf[pk].nunique(), "--> SHIT")
-            ERROR = dtf.groupby(pk).size().reset_index(name= "count").sort_values(by="count", ascending= False)
-            print("Example: ", pk+"==", ERROR.iloc[0,0])
-            return dtf[ dtf[pk]==ERROR.iloc[0,0] ]
-    
-    except Exception as e:
-        print("--- got error ---")
-        print(e)
 
 
 
@@ -554,7 +544,7 @@ def fill_na(dtf, x, value=None):
 '''
 Transforms a categorical column into dummy columns
 :parameter
-    :param dtf: dataframe - feature matrix dtf
+    :param dtf: dataframe - feature matrix dtf
     :param x: str - column name
     :param dropx: logic - whether the x column should be dropped
 :return
