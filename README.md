@@ -49,7 +49,11 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 		<img src="_docs/geo_cluster.gif" width="400" height="250">
 
+<br>
+
 ------
+
+<br>
 
 ### 2. Time Series:
 - <ins>**[Forecasting](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_forecast.ipynb)**</ins>
@@ -79,7 +83,11 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 		<img src="_docs/ts_clustering.PNG" width="400" height="150">
 
+<br>
+
 ------
+
+<br>
 
 ### 3. Natural Language Processing:
 - <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_classification.ipynb)**</ins>
@@ -106,7 +114,11 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 		<img src="_docs/nlp_summary.PNG" width="500" height="100">
 
+<br>
+
 ------
+
+<br>
 
 ### 4. Computer Vision:
 - <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
@@ -118,7 +130,11 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 		<img src="_docs/cv_detection.gif" width="400" height="250">
 
+<br>
+
 ------
+
+<br>
 
 ### 5. Reinforcement Learning:
 - <ins>**[Artificial Intelligence agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_ai_agent.ipynb)**</ins>
