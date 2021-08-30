@@ -6,7 +6,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 
 
-### 1. Classic Machine Learning:
+### 1. Classical Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
 	* Analysis 
 
