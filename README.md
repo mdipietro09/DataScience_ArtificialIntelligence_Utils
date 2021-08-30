@@ -1,7 +1,7 @@
-# Data Science & Artifical Intelligence examples (Python)
+# Data Science & Artifical Intelligence with Python
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
-Some of these examples are explained in articles on *Medium*[here](https://mdipietro09.medium.com/)
+Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com/).
 
 <br>
 
