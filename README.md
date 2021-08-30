@@ -1,10 +1,9 @@
 # Data Science & Artifical Intelligence examples (Python)
 
 In this repo you can find useful examples of Data Science use cases and Artificial Intelligence problems.\
-Some of these examples are explained in articles on *Towards Data Science* and *Analytics Vidhya* \
-(links in the notebooks or you can check [here](https://medium.com/@m.dipietro09)).
+Some of these examples are explained in articles on *Medium*[here](https://mdipietro09.medium.com/)
 
-
+<br>
 
 ### 1. Classical Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
@@ -24,6 +23,8 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 		<img src="_docs/classif_explain.PNG" width="300" height="200">
 
+<br>
+
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
 		
@@ -41,6 +42,7 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 
 		<img src="_docs/regr_explain.PNG" width="400" height="200">
 
+<br>
 
 - <ins>**[Clustering](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_clustering.ipynb)**</ins>
 	* Geospatial Interactive Maps
@@ -63,12 +65,14 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 		
 		<img src="_docs/ts_metrics.PNG" width="400" height="150">
 
+<br>
 
 - <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
 	* Distributions
 
 		<img src="_docs/ts_param.PNG" width="300" height="150">
 
+<br>
 
 - <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
 	* Clustering
@@ -94,6 +98,8 @@ Some of these examples are explained in articles on *Towards Data Science* and *
 	* Explainability 
 
 		<img src="_docs/nlp_explain.PNG" width="500" height="50">
+
+<br>
 
 - <ins>**[Text summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
 	* Model
