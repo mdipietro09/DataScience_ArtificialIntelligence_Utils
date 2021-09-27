@@ -108,7 +108,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 - <ins>**[Text summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
 	* Model
 
-		<img src="_docs/nlp_summary.gif" width="500" height="100">
+		<img src="_docs/nlp_summary.gif" width="400" height="200">
 
 <br>
 
