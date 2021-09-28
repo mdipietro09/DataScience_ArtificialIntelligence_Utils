@@ -247,7 +247,7 @@ def add_preprocessed_text(data, column, lst_regex=None, punkt=False, lower=False
 
 
 '''
-Compute n-grams frequency.
+Compute n-grams frequency with nltk tokenizer.
 :parameter
     :param corpus: list - dtf["text"]
     :param ngrams: int or list - 1 for unigrams, 2 for bigrams, [1,2] for both
@@ -1021,7 +1021,7 @@ def text2seq(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], fitted_t
         tokenizer = kprocessing.text.Tokenizer(num_words=top, lower=False, split=' ', char_level=False, oov_token=oov,
                                                filters='!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n')
         tokenizer.fit_on_texts(lst_corpus)
-        dic_vocabulary = tokenizer.word_index
+        dic_vocabulary = tokenizer.word_index if top is None else dict(list(tokenizer.word_index.items())[0:top+1])
         print(len(dic_vocabulary), "words")
     else:
         tokenizer = fitted_tokenizer
@@ -1855,12 +1855,12 @@ Predicts text sequences.
                                         output: [(1, max_seq_lenght, lstm_units), state_h, state_c]
     :param decoder_model: keras model - input: [1 word idx, encoder output, state_h (1 x lstm_units), state_c (1 x lstm_units)] 
                                         output: [probs, new_state_h, new_state_c]
-    :param tokenizer: fitted tokenizer to convert predicted idx in words
+    :param fitted_tokenizer: fitted tokenizer to convert predicted idx in words
     :param special_tokens: tuple - start-of-seq token and end-of-seq token
 :return
     list of predicted text
 '''
-def predict_seq2seq(X_test, encoder_model, decoder_model, tokenizer, special_tokens=("<START>","<END>")):
+def predict_seq2seq(X_test, encoder_model, decoder_model, fitted_tokenizer, special_tokens=("<START>","<END>")):
     max_seq_lenght = X_test.shape[1]
     predicted = []
     for x in X_test:
@@ -1870,7 +1870,7 @@ def predict_seq2seq(X_test, encoder_model, decoder_model, tokenizer, special_tok
         encoder_out, state_h, state_c = encoder_model.predict(x)
 
         ## prepare loop
-        y_in = np.array([tokenizer.word_index[special_tokens[0]]])
+        y_in = np.array([fitted_tokenizer.word_index[special_tokens[0]]])
         predicted_text = ""
         stop = False
 
@@ -1879,7 +1879,7 @@ def predict_seq2seq(X_test, encoder_model, decoder_model, tokenizer, special_tok
             probs, new_state_h, new_state_c = decoder_model.predict([y_in, encoder_out, state_h, state_c])
             ## get predicted word
             voc_idx = np.argmax(probs[0,-1,:])
-            pred_word = tokenizer.index_word[voc_idx] if voc_idx != 0 else special_tokens[1]
+            pred_word = fitted_tokenizer.index_word[voc_idx] if voc_idx != 0 else special_tokens[1]
             ## check stop
             if (pred_word != special_tokens[1]) and (len(predicted_text.split()) < max_seq_lenght):
                 predicted_text = predicted_text +" "+ pred_word
