@@ -10,7 +10,7 @@ statsmodels==0.10.1
 scikit-learn==0.22
 tslearn==0.4.1
 ## deep learning
-tensorflow==2.1.0
+tensorflow==2.6.0
 ## econometrics
 pmdarima==1.5.2
 arch==4.13
