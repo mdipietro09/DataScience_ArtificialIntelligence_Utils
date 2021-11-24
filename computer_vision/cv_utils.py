@@ -324,7 +324,7 @@ Fit convolutional neural network.
 :return
     model
 '''
-def fit_cnn(X_train, X_test, model=None, batch_size=32, epochs=100, savepath=None):
+def fit_cnn(X_train, X_test, model=None, batch_size=32, epochs=100, verbose=0, savepath=None):
     ## cnn
     if model is None:
         img_shape = X_train.image_shape
@@ -352,7 +352,7 @@ def fit_cnn(X_train, X_test, model=None, batch_size=32, epochs=100, savepath=Non
     
     ## train
     print(model.summary())
-    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=0)
+    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=verbose)
     if savepath is not None:
         training.model.save(savepath+"cnn.h5")
     
@@ -373,7 +373,7 @@ Fit convolutional neural network from pre-trained layers.
 :return
     model
 '''
-def fit_cnn_transfer_learning(X_train, X_test, base=None, new_layer=None, batch_size=32, epochs=100, savepath=None):
+def fit_cnn_transfer_learning(X_train, X_test, base=None, new_layer=None, batch_size=32, epochs=100, verbose=0, savepath=None):
     img_shape = X_train.image_shape
     n_classes = len(X_train.class_indices)
     if n_classes == 2:
@@ -409,7 +409,7 @@ def fit_cnn_transfer_learning(X_train, X_test, base=None, new_layer=None, batch_
    
     ## train
     print(model.summary())
-    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=0)
+    training = model.fit_generator(X_train, steps_per_epoch=batch_size, epochs=epochs, validation_data=X_test, verbose=verbose)
     if savepath is not None:
         training.model.save(savepath+"cnn_transfer.h5")
     

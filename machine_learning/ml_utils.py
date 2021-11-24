@@ -42,11 +42,13 @@ Recognize whether a column is numerical or categorical.
     :param col: str - name of the column to analyze
     :param max_cat: num - max number of unique values to recognize a column as categorical
 :return
-    "cat" if the column is categorical and "num" otherwise
+    "cat" if the column is categorical, "dt" if datetime, "num" otherwise
 '''
 def utils_recognize_type(dtf, col, max_cat=20):
     if (dtf[col].dtype == "O") | (dtf[col].nunique() < max_cat):
         return "cat"
+    elif dtf[col].dtype in ['datetime64[ns]','<M8[ns]']:
+        return "dt"
     else:
         return "num"
 
@@ -71,6 +73,8 @@ def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
         info = info+" | Nas: "+str(dtf[col].isna().sum())+"("+str(int(dtf[col].isna().mean()*100))+"%)"
         if dic_cols[col] == "cat":
             info = info+" | Categories: "+str(dtf[col].nunique())
+        elif dic_cols[col] == "dt":
+            info = info+" | Range: "+"({x})-({y})".format(x=str(dtf[col].min()), y=str(dtf[col].max()))
         else:
             info = info+" | Min-Max: "+"({x})-({y})".format(x=str(int(dtf[col].min())), y=str(int(dtf[col].max())))
         if dtf[col].nunique() == len_dtf:
@@ -90,7 +94,7 @@ def dtf_overview(dtf, max_cat=20, figsize=(10,5)):
     plt.show()
     
     ## add legend
-    print("\033[1;37;40m Categerocial \033[m", "\033[1;30;41m Numerical \033[m", "\033[1;30;47m NaN \033[m")
+    print("\033[1;37;40m Categerocial \033[m", "\033[1;30;41m Numerical/DateTime \033[m", "\033[1;30;47m NaN \033[m")
 
 
 
@@ -972,7 +976,7 @@ Fits a keras artificial/deep neural network.
 :return
     model fitted and predictions
 '''
-def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, threshold=0.5):
+def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=100, verbose=0, threshold=0.5):
     ## model
     if model is None:
         ### define F1 metrics for Keras
@@ -1006,7 +1010,6 @@ def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=1
         print(model.summary())
     
     ## train
-    verbose = 0 if epochs > 1 else 1
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     if epochs > 1:
         utils_plot_keras_training(training)
@@ -1179,7 +1182,7 @@ Fits a keras deep/artificial neural network.
 :return
     model fitted and predictions
 '''
-def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100):
+def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, epochs=100, verbose=0):
     ## model
     if model is None:
         ### define R2 metric for Keras
@@ -1202,7 +1205,6 @@ def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
         print(model.summary())
 
     ## train
-    verbose = 0 if epochs > 1 else 1
     training = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     if epochs > 1:
         utils_plot_keras_training(training)

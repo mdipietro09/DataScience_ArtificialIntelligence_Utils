@@ -42,6 +42,7 @@ import transformers
 
 ## for summarization
 import rouge
+import difflib
 
 
 
@@ -1084,7 +1085,7 @@ Fits a keras classification model.
 :return
     model fitted and predictions
 '''
-def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, weights=None, epochs=100, batch_size=256):
+def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, weights=None, epochs=100, batch_size=256, verbose=0):
     ## encode y
     if encode_y is True:
         dic_y_mapping = {n:label for n,label in enumerate(np.unique(y_train))}
@@ -1110,7 +1111,6 @@ def fit_dl_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None,
         print(model.summary())
         
     ## train
-    verbose = 0 if epochs > 1 else 1
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     if epochs > 1:
         utils_plot_keras_training(training)
@@ -1490,7 +1490,7 @@ Pre-trained Bert + Fine-tuning (transfer learning) with tf2 and transformers.
 :return
     model fitted and predictions
 '''
-def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, epochs=100, batch_size=64):
+def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=None, model=None, epochs=100, batch_size=64, verbose=1):
     ## encode y
     if encode_y is True:
         dic_y_mapping = {n:label for n,label in enumerate(np.unique(y_train))}
@@ -1519,7 +1519,6 @@ def fit_bert_classif(X_train, y_train, X_test, encode_y=False, dic_y_mapping=Non
         print(model.summary())
         
     ## train
-    verbose = 0 if epochs > 1 else 1
     training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     if epochs > 1:
         utils_plot_keras_training(training)
@@ -1723,6 +1722,63 @@ def vlookup(lst_left, lst_right, threshold=0.7, top=1):
 
 
 '''
+Find the matching substrings in 2 strings.
+:parameter
+    :param a: string - raw text
+    :param b: string - raw text
+:return
+    2 lists used in to display matches
+'''
+def utils_split_sentences(a, b):
+    ## find clean matches
+    match = difflib.SequenceMatcher(isjunk=None, a=a, b=b, autojunk=True)
+    lst_match = [block for block in match.get_matching_blocks() if block.size > 20]
+    
+    ## difflib didn't find any match
+    if len(lst_match) == 0:
+        lst_a, lst_b = nltk.sent_tokenize(a), nltk.sent_tokenize(b)
+    
+    ## work with matches
+    else:
+        first_m, last_m = lst_match[0], lst_match[-1]
+
+        ### a
+        string = a[0 : first_m.a]
+        lst_a = [t for t in nltk.sent_tokenize(string)]
+        for n in range(len(lst_match)):
+            m = lst_match[n]
+            string = a[m.a : m.a+m.size]
+            lst_a.append(string)
+            if n+1 < len(lst_match):
+                next_m = lst_match[n+1]
+                string = a[m.a+m.size : next_m.a]
+                lst_a = lst_a + [t for t in nltk.sent_tokenize(string)]
+            else:
+                break
+        string = a[last_m.a+last_m.size :]
+        lst_a = lst_a + [t for t in nltk.sent_tokenize(string)]
+
+        ### b
+        string = b[0 : first_m.b]
+        lst_b = [t for t in nltk.sent_tokenize(string)]
+        for n in range(len(lst_match)):
+            m = lst_match[n]
+            string = b[m.b : m.b+m.size]
+            lst_b.append(string)
+            if n+1 < len(lst_match):
+                next_m = lst_match[n+1]
+                string = b[m.b+m.size : next_m.b]
+                lst_b = lst_b + [t for t in nltk.sent_tokenize(string)]
+            else:
+                break
+        string = b[last_m.b+last_m.size :]
+        lst_b = lst_b + [t for t in nltk.sent_tokenize(string)]
+    
+    return lst_a, lst_b
+
+
+
+'''
 Highlights the matched strings in text.
 :parameter
     :param a: string - raw text
@@ -1734,14 +1790,14 @@ Highlights the matched strings in text.
 '''
 def display_string_matching(a, b, both=True, sentences=True, titles=[]):
     if sentences is True:
-        lst_a, lst_b = nltk.sent_tokenize(a), nltk.sent_tokenize(b)
+        lst_a, lst_b = utils_split_sentences(a, b)
     else:
         lst_a, lst_b = a.split(), b.split()       
     
     ## highlight a
     first_text = []
     for i in lst_a:
-        if i.lower() in [z.lower() for z in lst_b]:
+        if re.sub(r'[^\w\s]', '', i.lower()) in [re.sub(r'[^\w\s]', '', z.lower()) for z in lst_b]:
             first_text.append('<span style="background-color:rgba(255,215,0,0.3);">' + i + '</span>')
         else:
             first_text.append(i)
@@ -1751,7 +1807,7 @@ def display_string_matching(a, b, both=True, sentences=True, titles=[]):
     second_text = []
     if both is True:
         for i in lst_b:
-            if i in [z.lower() for z in lst_a]:
+            if re.sub(r'[^\w\s]', '', i.lower()) in [re.sub(r'[^\w\s]', '', z.lower()) for z in lst_a]:
                 second_text.append('<span style="background-color:rgba(255,215,0,0.3);">' + i + '</span>')
             else:
                 second_text.append(i)
@@ -1786,7 +1842,7 @@ Fits a keras seq2seq model.
 :return
     fitted model, encoder + decoder (if model is noy given)
 '''
-def fit_seq2seq(X_train, y_train, X_embeddings, y_embeddings, model=None, build_encoder_decoder=True, epochs=100, batch_size=64):    
+def fit_seq2seq(X_train, y_train, X_embeddings, y_embeddings, model=None, build_encoder_decoder=True, epochs=100, batch_size=64, verbose=1):    
     ## model
     if model is None:
         ### params
@@ -1799,16 +1855,14 @@ def fit_seq2seq(X_train, y_train, X_embeddings, y_embeddings, model=None, build_
         layer_x_emb = layers.Embedding(name="x_emb", input_dim=len_vocabulary_X, output_dim=embeddings_dim_X, 
                                        weights=[X_embeddings], trainable=False)
         x_emb = layer_x_emb(x_in)
-        layer_x_lstm = layers.LSTM(name="x_lstm", units=lstm_units, dropout=0.4, recurrent_dropout=0.4,
-                                   return_sequences=True, return_state=True)
+        layer_x_lstm = layers.LSTM(name="x_lstm", units=lstm_units, return_sequences=True, return_state=True)
         x_out, state_h, state_c = layer_x_lstm(x_emb)
         ### decoder (embedding + lstm + dense)
         y_in = layers.Input(name="y_in", shape=(None,))
         layer_y_emb = layers.Embedding(name="y_emb", input_dim=len_vocabulary_y, output_dim=embeddings_dim_y, 
                                        weights=[y_embeddings], trainable=False)
         y_emb = layer_y_emb(y_in)
-        layer_y_lstm = layers.LSTM(name="y_lstm", units=lstm_units, dropout=0.4, recurrent_dropout=0.4,
-                                   return_sequences=True, return_state=True)
+        layer_y_lstm = layers.LSTM(name="y_lstm", units=lstm_units, return_sequences=True, return_state=True)
         y_out, _, _ = layer_y_lstm(y_emb, initial_state=[state_h, state_c])
         layer_dense = layers.TimeDistributed(name="dense", 
                                              layer=layers.Dense(units=len_vocabulary_y, activation='softmax'))
@@ -1819,7 +1873,6 @@ def fit_seq2seq(X_train, y_train, X_embeddings, y_embeddings, model=None, build_
         print(model.summary())
         
     ## train
-    verbose = 0 if epochs > 1 else 1
     training = model.fit(x=[X_train, y_train[:,:-1]], 
                          y=y_train.reshape(y_train.shape[0], y_train.shape[1], 1)[:,1:],
                          batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3,
@@ -1867,7 +1920,7 @@ def predict_seq2seq(X_test, encoder_model, decoder_model, fitted_tokenizer, spec
         x = x.reshape(1,-1)
 
         ## encode X
-        encoder_out, state_h, state_c = encoder_model.predict(x)
+        x_out, state_h, state_c = encoder_model.predict(x)
 
         ## prepare loop
         y_in = np.array([fitted_tokenizer.word_index[special_tokens[0]]])
@@ -1876,7 +1929,7 @@ def predict_seq2seq(X_test, encoder_model, decoder_model, fitted_tokenizer, spec
 
         while not stop:
             ## predict dictionary probability distribution
-            probs, new_state_h, new_state_c = decoder_model.predict([y_in, encoder_out, state_h, state_c])
+            probs, new_state_h, new_state_c = decoder_model.predict([y_in, x_out, state_h, state_c])
             ## get predicted word
             voc_idx = np.argmax(probs[0,-1,:])
             pred_word = fitted_tokenizer.index_word[voc_idx] if voc_idx != 0 else special_tokens[1]

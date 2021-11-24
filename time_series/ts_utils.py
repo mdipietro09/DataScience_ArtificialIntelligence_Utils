@@ -1043,7 +1043,7 @@ Fit Long Short-Term Memory neural network.
 :return
     dtf with predictons and the model 
 '''
-def fit_lstm(ts_train, ts_test, model, exog=None, s=20, epochs=100, conf=0.95, figsize=(15,5)):
+def fit_lstm(ts_train, ts_test, model, exog=None, s=20, batch_size=1, epochs=100, verbose=0, conf=0.95, figsize=(15,5)):
     ## check
     print("Seasonality: using the last", s, "observations to predict the next 1")
     
@@ -1060,8 +1060,7 @@ def fit_lstm(ts_train, ts_test, model, exog=None, s=20, epochs=100, conf=0.95, f
         print(model.summary())
         
     ## train
-    verbose = 0 if epochs > 1 else 1
-    training = model.fit(x=X_train, y=y_train, batch_size=1, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
+    training = model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     dtf_train = ts_train.to_frame(name="ts")
     dtf_train["model"] = utils_fitted_lstm(ts_train, training.model, scaler, exog)
     dtf_train["model"] = dtf_train["model"].fillna(method='bfill')
@@ -1088,7 +1087,7 @@ Forecast unknown future.
     :param end: string - date to forecast (ex. end="2016-12-31")
     :param zoom: for plotting
 '''
-def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
+def forecast_lstm(ts, model=None, batch_size=1, epochs=100, verbose=0, pred_ahead=None, end=None, conf=0.95, zoom=30, figsize=(15,5)):
     ## model
     if model is None:
         model = models.Sequential([
@@ -1099,7 +1098,7 @@ def forecast_lstm(ts, model=None, epochs=100, pred_ahead=None, end=None, conf=0.
     ## fit
     s = model.input_shape[1]
     X, y, scaler = utils_preprocess_lstm(ts, scaler=None, exog=None, s=s)
-    training = model.fit(x=X, y=y, batch_size=1, epochs=epochs, shuffle=True, verbose=0, validation_split=0.3)
+    training = model.fit(x=X, y=y, batch_size=batch_size, epochs=epochs, shuffle=True, verbose=verbose, validation_split=0.3)
     dtf = ts.to_frame(name="ts")
     dtf["model"] = utils_fitted_lstm(ts, training.model, scaler, None)
     dtf["model"] = dtf["model"].fillna(method='bfill')
