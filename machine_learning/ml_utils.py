@@ -999,13 +999,18 @@ def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=1
 
         ### build ann
         n_features = X_train.shape[1]
-        n_neurons = int(round((n_features + 1)/2))
-        model = models.Sequential([
-            layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='uniform', activation='relu'),
-            layers.Dropout(rate=0.2),
-            layers.Dense(units=n_neurons, kernel_initializer='uniform', activation='relu'),
-            layers.Dropout(rate=0.2),
-            layers.Dense(units=1, kernel_initializer='uniform', activation='sigmoid') ])
+        model = models.Sequential(name="DeepNN", layers=[
+            ### layer input
+            layers.Dense(name="x_in", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
+            ### hidden layer 1
+            layers.Dense(name="h_1", units=int(round((n_features+1)/2)), activation='relu'),
+            layers.Dropout(name="drop_1", rate=0.2),
+            ### hidden layer 2
+            layers.Dense(name="h_2", units=int(round((n_features+1)/4)), activation='relu'),
+            layers.Dropout(name="drop_2", rate=0.2),
+            ### layer output
+            layers.Dense(name="y_out", units=1, activation='sigmoid')
+        ])
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
         print(model.summary())
     
@@ -1194,13 +1199,18 @@ def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
 
         ### build ann
         n_features = X_train.shape[1]
-        n_neurons = int(round((n_features + 1)/2))
-        model = models.Sequential([
-            layers.Dense(input_dim=n_features, units=n_neurons, kernel_initializer='normal', activation='relu'),
-            layers.Dropout(rate=0.2),
-            layers.Dense(units=n_neurons, kernel_initializer='normal', activation='relu'),
-            layers.Dropout(rate=0.2),
-            layers.Dense(units=1, kernel_initializer='normal', activation='linear') ])
+        model = models.Sequential(name="DeepNN", layers=[
+            ### layer input
+            layers.Dense(name="x_in", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
+            ### hidden layer 1
+            layers.Dense(name="h_1", units=int(round((n_features+1)/2)), activation='relu'),
+            layers.Dropout(name="drop_1", rate=0.2),
+            ### hidden layer 2
+            layers.Dense(name="h_2", units=int(round((n_features+1)/4)), activation='relu'),
+            layers.Dropout(name="drop_2", rate=0.2),
+            ### layer output
+            layers.Dense(name="y_out", units=1, activation='linear')
+        ])
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=[R2])
         print(model.summary())
 
@@ -1427,14 +1437,14 @@ Extract info for each layer in a keras model.
 def utils_nn_config(model):
     lst_layers = []
     for layer in model.layers:
-        if "drop" in layer.name:
-            dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":0, 
-                         "out":int(layer.output.shape[-1]), "activation":None,
-                         "params":0, "bias":0} 
-        else:
+        try:
             dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":layer.units, 
                          "out":int(layer.output.shape[-1]), "activation":layer.get_config()["activation"],
-                         "params":layer.get_weights()[0], "bias":layer.get_weights()[1]} 
+                         "params":layer.get_weights()[0], "bias":layer.get_weights()[1]}
+        except:
+            dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":0, 
+                         "out":int(layer.output.shape[-1]), "activation":None,
+                         "params":0, "bias":0}
         lst_layers.append(dic_layer)
     return lst_layers
 
@@ -1443,19 +1453,15 @@ def utils_nn_config(model):
 '''
 Plot the structure of a keras neural network.
 '''
-def visualize_nn(model, titles=False, figsize=(10,8)):
+def visualize_nn(model, description=False, figsize=(10,8)):
     ## get layers info
     lst_layers = utils_nn_config(model)
-    layer_sizes, layer_infos = [], []
-    for i,layer in enumerate(lst_layers):
-        if "drop" not in layer["name"]:
-            layer_sizes.append(layer["in"] if i==0 else layer["out"])
-            layer_infos.append( (layer["activation"], layer["params"], layer["bias"]) )
+    layer_sizes = [lst_layers[0]["in"]] + [layer["out"] for layer in lst_layers]
     
     ## fig setup
     fig = plt.figure(figsize=figsize)
     ax = fig.gca()
-    ax.set(title="Neural Network structure")
+    ax.set(title=model.name)
     ax.axis('off')
     left, right, bottom, top = 0.1, 0.9, 0.1, 0.9
     x_space = (right-left) / float(len(layer_sizes)-1)
@@ -1465,28 +1471,24 @@ def visualize_nn(model, titles=False, figsize=(10,8)):
     ## nodes
     for i,n in enumerate(layer_sizes):
         top_on_layer = y_space*(n-1)/2.0 + (top+bottom)/2.0
+        layer = lst_layers[i-1]
+        color = "green" if (i == 1) or (i == len(layer_sizes)-1) else "blue"
+        color = "red" if layer['neurons'] == 0 else color
+        color = "black" if i == 0 else color
         
-        ### add titles
-        if titles is True:
-            if i == 0:
-                plt.text(x=left, y=top, fontsize=10, s="Input layer")
-                plt.text(x=left, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
-                plt.text(x=left, y=top-2*p, fontsize=8,
-                         s="inputs:"+str(layer_infos[i][1].shape[0]))
-            elif i == len(layer_sizes)-1:
-                plt.text(x=right, y=top, fontsize=10, s="Output layer")
-                plt.text(x=right, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
-                plt.text(x=right, y=top-2*p, fontsize=8,
-                         s="output:"+str(layer_infos[i][1].shape[1])+" comb + bias")
+        ### add description
+        if (description is True) and (i > 0):
+            if layer['activation'] is None:
+                plt.text(x=left+(i-0.5)*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
             else:
-                plt.text(x=left+i*x_space, y=top, fontsize=10, s="Hidden layer "+str(i))
-                plt.text(x=left+i*x_space, y=top-p, fontsize=8, s="activation: "+str(layer_infos[i][0]))
-                plt.text(x=left+i*x_space, y=top-2*p, fontsize=8,
-                         s="neurons:"+str(layer_infos[i][1].shape[0])+" comb + bias")
+                plt.text(x=left+(i-0.5)*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
+                plt.text(x=left+(i-0.5)*x_space, y=top-p, fontsize=10, color=color, s=layer['activation']+" (")
+                plt.text(x=left+(i-0.5)*x_space, y=top-2*p, fontsize=10, color=color, s="Σ"+str(layer['in'])+"[X*w]+b")
+                plt.text(x=left+(i-0.5)*x_space, y=top-3*p, fontsize=10, color=color, s=") = "+str(layer['neurons'])+" out")
         
         ### circles
         for m in range(n):
-            color = "limegreen" if (i == 0) or (i == len(layer_sizes)-1) else "red" 
+            color = "limegreen" if color == "green" else color
             circle = plt.Circle(xy=(left+i*x_space, top_on_layer-m*y_space-4*p), radius=y_space/4.0, color=color, ec='k', zorder=4)
             ax.add_artist(circle)
             
