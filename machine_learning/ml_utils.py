@@ -19,7 +19,7 @@ from sklearn import preprocessing, impute, utils, linear_model, feature_selectio
 import imblearn
 
 ## for deep learning
-from tensorflow.keras import models, layers
+from tensorflow.keras import models, layers, backend as K
 import minisom
 
 ## for explainer
@@ -1191,7 +1191,6 @@ def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
     ## model
     if model is None:
         ### define R2 metric for Keras
-        from tensorflow.keras import backend as K
         def R2(y, y_hat):
             ss_res =  K.sum(K.square(y - y_hat)) 
             ss_tot = K.sum(K.square(y - K.mean(y))) 
