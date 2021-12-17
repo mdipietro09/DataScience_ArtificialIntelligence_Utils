@@ -1000,16 +1000,14 @@ def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=1
         ### build ann
         n_features = X_train.shape[1]
         model = models.Sequential(name="DeepNN", layers=[
-            ### layer input
-            layers.Dense(name="x_in", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
-            ### hidden layer 1
-            layers.Dense(name="h_1", units=int(round((n_features+1)/2)), activation='relu'),
-            layers.Dropout(name="drop_1", rate=0.2),
+            ### (layer input) & hidden layer 1
+            layers.Dense(name="h1", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
+            layers.Dropout(name="drop1", rate=0.2),
             ### hidden layer 2
-            layers.Dense(name="h_2", units=int(round((n_features+1)/4)), activation='relu'),
-            layers.Dropout(name="drop_2", rate=0.2),
+            layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu'),
+            layers.Dropout(name="drop2", rate=0.2),
             ### layer output
-            layers.Dense(name="y_out", units=1, activation='sigmoid')
+            layers.Dense(name="output", units=1, activation='sigmoid')
         ])
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
         print(model.summary())
@@ -1199,16 +1197,14 @@ def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
         ### build ann
         n_features = X_train.shape[1]
         model = models.Sequential(name="DeepNN", layers=[
-            ### layer input
-            layers.Dense(name="x_in", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
-            ### hidden layer 1
-            layers.Dense(name="h_1", units=int(round((n_features+1)/2)), activation='relu'),
-            layers.Dropout(name="drop_1", rate=0.2),
+            ### (layer input) & hidden layer 1
+            layers.Dense(name="h1", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
+            layers.Dropout(name="drop1", rate=0.2),
             ### hidden layer 2
-            layers.Dense(name="h_2", units=int(round((n_features+1)/4)), activation='relu'),
-            layers.Dropout(name="drop_2", rate=0.2),
+            layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu'),
+            layers.Dropout(name="drop2", rate=0.2),
             ### layer output
-            layers.Dense(name="y_out", units=1, activation='linear')
+            layers.Dense(name="output", units=1, activation='linear')
         ])
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=[R2])
         print(model.summary())
@@ -1435,6 +1431,11 @@ Extract info for each layer in a keras model.
 '''
 def utils_nn_config(model):
     lst_layers = []
+    if "Sequential" in str(model): #-> Sequential doesn't show the input layer
+        layer = model.layers[0]
+        lst_layers.append({"name":"input", "in":int(layer.input.shape[-1]), "neurons":0, 
+                           "out":int(layer.input.shape[-1]), "activation":None,
+                           "params":0, "bias":0})
     for layer in model.layers:
         try:
             dic_layer = {"name":layer.name, "in":int(layer.input.shape[-1]), "neurons":layer.units, 
@@ -1455,7 +1456,7 @@ Plot the structure of a keras neural network.
 def visualize_nn(model, description=False, figsize=(10,8)):
     ## get layers info
     lst_layers = utils_nn_config(model)
-    layer_sizes = [lst_layers[0]["in"]] + [layer["out"] for layer in lst_layers]
+    layer_sizes = [layer["out"] for layer in lst_layers]
     
     ## fig setup
     fig = plt.figure(figsize=figsize)
@@ -1470,20 +1471,21 @@ def visualize_nn(model, description=False, figsize=(10,8)):
     ## nodes
     for i,n in enumerate(layer_sizes):
         top_on_layer = y_space*(n-1)/2.0 + (top+bottom)/2.0
-        layer = lst_layers[i-1]
-        color = "green" if (i == 1) or (i == len(layer_sizes)-1) else "blue"
-        color = "red" if layer['neurons'] == 0 else color
-        color = "black" if i == 0 else color
+        layer = lst_layers[i]
+        color = "green" if i in [0, len(layer_sizes)-1] else "blue"
+        color = "red" if (layer['neurons'] == 0) and (i > 0) else color
         
         ### add description
-        if (description is True) and (i > 0):
+        if (description is True):
+            d = i if i == 0 else i-0.5
             if layer['activation'] is None:
-                plt.text(x=left+(i-0.5)*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
+                plt.text(x=left+d*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
             else:
-                plt.text(x=left+(i-0.5)*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
-                plt.text(x=left+(i-0.5)*x_space, y=top-p, fontsize=10, color=color, s=layer['activation']+" (")
-                plt.text(x=left+(i-0.5)*x_space, y=top-2*p, fontsize=10, color=color, s="Σ"+str(layer['in'])+"[X*w]+b")
-                plt.text(x=left+(i-0.5)*x_space, y=top-3*p, fontsize=10, color=color, s=") = "+str(layer['neurons'])+" out")
+                plt.text(x=left+d*x_space, y=top, fontsize=10, color=color, s=layer["name"].upper())
+                plt.text(x=left+d*x_space, y=top-p, fontsize=10, color=color, s=layer['activation']+" (")
+                plt.text(x=left+d*x_space, y=top-2*p, fontsize=10, color=color, s="Σ"+str(layer['in'])+"[X*w]+b")
+                out = " Y"  if i == len(layer_sizes)-1 else " out"
+                plt.text(x=left+d*x_space, y=top-3*p, fontsize=10, color=color, s=") = "+str(layer['neurons'])+out)
         
         ### circles
         for m in range(n):
@@ -1501,12 +1503,21 @@ def visualize_nn(model, description=False, figsize=(10,8)):
     
     ## links
     for i, (n_a, n_b) in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
+        layer = lst_layers[i+1]
+        color = "green" if i == len(layer_sizes)-2 else "blue"
+        color = "red" if layer['neurons'] == 0 else color
         layer_top_a = y_space*(n_a-1)/2. + (top+bottom)/2. -4*p
         layer_top_b = y_space*(n_b-1)/2. + (top+bottom)/2. -4*p
         for m in range(n_a):
             for o in range(n_b):
-                line = plt.Line2D([i*x_space+left, (i+1)*x_space+left], [layer_top_a-m*y_space, layer_top_b-o*y_space], c='k', alpha=0.5)
-                ax.add_artist(line)
+                line = plt.Line2D([i*x_space+left, (i+1)*x_space+left], 
+                                  [layer_top_a-m*y_space, layer_top_b-o*y_space], 
+                                  c=color, alpha=0.5)
+                if layer['activation'] is None:
+                    if o == m:
+                        ax.add_artist(line)
+                else:
+                    ax.add_artist(line)
     plt.show()
 
 
