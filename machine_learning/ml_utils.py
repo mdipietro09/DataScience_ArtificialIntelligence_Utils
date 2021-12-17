@@ -999,16 +999,17 @@ def fit_dl_classif(X_train, y_train, X_test, model=None, batch_size=32, epochs=1
 
         ### build ann
         n_features = X_train.shape[1]
-        model = models.Sequential(name="DeepNN", layers=[
-            ### (layer input) & hidden layer 1
-            layers.Dense(name="h1", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
-            layers.Dropout(name="drop1", rate=0.2),
-            ### hidden layer 2
-            layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu'),
-            layers.Dropout(name="drop2", rate=0.2),
-            ### layer output
-            layers.Dense(name="output", units=1, activation='sigmoid')
-        ])
+        #### layer input
+        inputs = layers.Input(name="input", shape=(n_features,))
+        #### hidden layer 1
+        h1 = layers.Dense(name="h1", units=int(round((n_features+1)/2)), activation='relu')(inputs)
+        h1 = layers.Dropout(name="drop1", rate=0.2)(h1)
+        #### hidden layer 2
+        h2 = layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu')(h1)
+        h2 = layers.Dropout(name="drop2", rate=0.2)(h2)
+        #### layer output
+        outputs = layers.Dense(name="output", units=1, activation='sigmoid')(h2)
+        model = models.Model(inputs=inputs, outputs=outputs, name="DeepNN")
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy',F1])
         print(model.summary())
     
@@ -1196,16 +1197,17 @@ def fit_dl_regr(X_train, y_train, X_test, scalerY, model=None, batch_size=32, ep
 
         ### build ann
         n_features = X_train.shape[1]
-        model = models.Sequential(name="DeepNN", layers=[
-            ### (layer input) & hidden layer 1
-            layers.Dense(name="h1", input_dim=n_features, units=int(round((n_features+1)/2)), activation='relu'),
-            layers.Dropout(name="drop1", rate=0.2),
-            ### hidden layer 2
-            layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu'),
-            layers.Dropout(name="drop2", rate=0.2),
-            ### layer output
-            layers.Dense(name="output", units=1, activation='linear')
-        ])
+        #### layer input
+        inputs = layers.Input(name="input", shape=(n_features,))
+        #### hidden layer 1
+        h1 = layers.Dense(name="h1", units=int(round((n_features+1)/2)), activation='relu')(inputs)
+        h1 = layers.Dropout(name="drop1", rate=0.2)(h1)
+        #### hidden layer 2
+        h2 = layers.Dense(name="h2", units=int(round((n_features+1)/4)), activation='relu')(h1)
+        h2 = layers.Dropout(name="drop2", rate=0.2)(h2)
+        #### layer output
+        outputs = layers.Dense(name="output", units=1, activation='linear')(h2)
+        model = models.Model(inputs=inputs, outputs=outputs, name="DeepNN")
         model.compile(optimizer='adam', loss='mean_absolute_error', metrics=[R2])
         print(model.summary())
 
