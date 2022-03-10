@@ -176,12 +176,12 @@ Preprocess a string.
     cleaned text
 '''
 def utils_preprocess_text(txt, lst_regex=None, punkt=True, lower=True, slang=True, lst_stopwords=None, stemm=False, lemm=True):
-    ## regex (in case, before processing)
+    ## Regex (in case, before cleaning)
     if lst_regex is not None: 
         for regex in lst_regex:
             txt = re.sub(regex, '', txt)
 
-    ## clean 
+    ## Clean 
     ### separate sentences with '. '
     txt = re.sub(r'\.(?=[^ \W\d])', '. ', str(txt))
     ### remove punctuations and characters
@@ -195,10 +195,6 @@ def utils_preprocess_text(txt, lst_regex=None, punkt=True, lower=True, slang=Tru
             
     ## Tokenize (convert from string to list)
     lst_txt = txt.split()
-
-    ## remove Stopwords
-    if lst_stopwords is not None:
-        lst_txt = [word for word in lst_txt if word not in lst_stopwords]
                 
     ## Stemming (remove -ing, -ly, ...)
     if stemm is True:
@@ -210,11 +206,11 @@ def utils_preprocess_text(txt, lst_regex=None, punkt=True, lower=True, slang=Tru
         lem = nltk.stem.wordnet.WordNetLemmatizer()
         lst_txt = [lem.lemmatize(word) for word in lst_txt]
 
-    ## remove leftover Stopwords
+    ## Stopwords
     if lst_stopwords is not None:
         lst_txt = [word for word in lst_txt if word not in lst_stopwords]
             
-    ## back to string from list
+    ## Back to string
     txt = " ".join(lst_txt)
     return txt
 
@@ -1006,11 +1002,11 @@ Transforms the corpus into an array of sequences of idx (tokenizer) with same le
     :param top: num - if given the tokenizer keeps only top important words
     :param oov: string - how to encode words not in vocabulary (ex. "NAN")
     :param maxlen: num - dimensionality of the vectors, if None takes the max length in corpus
-    :param padding: string - "pre" for [9999,1,2,3] or "post" for [1,2,3,9999]
+    :param padding: string - <PAD> token
 :return
     If training: matrix of sequences, tokenizer, dic_vocabulary. Else matrix of sequences only.
 '''
-def text2seq(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], fitted_tokenizer=None, top=None, oov=None, maxlen=None):    
+def text2seq(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], fitted_tokenizer=None, top=None, oov=None, maxlen=None, padding="<PAD>"):    
     print("--- tokenization ---")
     
     ## detect common n-grams in corpus
@@ -1022,7 +1018,9 @@ def text2seq(corpus, ngrams=1, grams_join=" ", lst_ngrams_detectors=[], fitted_t
         tokenizer = kprocessing.text.Tokenizer(num_words=top, lower=False, split=' ', char_level=False, oov_token=oov,
                                                filters='!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n')
         tokenizer.fit_on_texts(lst_corpus)
-        dic_vocabulary = tokenizer.word_index if top is None else dict(list(tokenizer.word_index.items())[0:top+1])
+        dic_vocabulary = {padding:0}
+        words = tokenizer.word_index if top is None else dict(list(tokenizer.word_index.items())[0:top+1])
+        dic_vocabulary.update(words)
         print(len(dic_vocabulary), "words")
     else:
         tokenizer = fitted_tokenizer
@@ -1835,14 +1833,14 @@ Fits a keras seq2seq model.
 :parameter
     :param X_train: array of sequences
     :param y_train: array of sequences
+    :param model: model object - model to fit (before fitting)
     :param X_embeddings: array of weights - shape (len_vocabulary x 300)
     :param y_embeddings: array of weights - shape (len_vocabulary x 300)
-    :param model: model object - model to fit (before fitting)
     :param build_encoder_decoder: logic - if True returns prediction encoder-decoder
 :return
     fitted model, encoder + decoder (if model is noy given)
 '''
-def fit_seq2seq(X_train, y_train, X_embeddings, y_embeddings, model=None, build_encoder_decoder=True, epochs=100, batch_size=64, verbose=1):    
+def fit_seq2seq(X_train, y_train, model=None, X_embeddings=None, y_embeddings=None, build_encoder_decoder=True, epochs=100, batch_size=64, verbose=1):    
     ## model
     if model is None:
         ### params
@@ -1932,7 +1930,7 @@ def predict_seq2seq(X_test, encoder_model, decoder_model, fitted_tokenizer, spec
             probs, new_state_h, new_state_c = decoder_model.predict([y_in, x_out, state_h, state_c])
             ## get predicted word
             voc_idx = np.argmax(probs[0,-1,:])
-            pred_word = fitted_tokenizer.index_word[voc_idx] if voc_idx != 0 else special_tokens[1]
+            pred_word = fitted_tokenizer.index_word[voc_idx]
             ## check stop
             if (pred_word != special_tokens[1]) and (len(predicted_text.split()) < max_seq_lenght):
                 predicted_text = predicted_text +" "+ pred_word
@@ -1989,14 +1987,13 @@ def textrank(corpus, ratio=0.2):
 Summarizes corpus with Bart.
 :parameter
     :param corpus: list - dtf["text"]
-    :param ratio: length of the summary (ex. 20% of the text)
+    :param max_len: length of the summary
 :return
     list of summaries
 '''
-def bart(corpus, ratio=0.2):
+def bart(corpus, max_len):
     nlp = transformers.pipeline("summarization")
-    lst_summaries = [nlp(txt, max_length=int(len(txt.split())*ratio), 
-                              min_length=int(len(txt.split())*ratio)
+    lst_summaries = [nlp(txt[:nlp.tokenizer.max_len], max_length=max_len
                         )[0]["summary_text"].replace(" .", ".")
                      for txt in corpus]
     return lst_summaries
