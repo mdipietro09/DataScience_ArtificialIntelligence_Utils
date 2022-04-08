@@ -51,6 +51,13 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 <br>
 
+- <ins>**[Recommendation Systems](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_recommendation.ipynb)**</ins>
+	* User x Product Ratings
+
+		<img src="_docs/ml_recomm.PNG" width="400" height="200">
+
+<br>
+
 ------
 
 ### 2. Time Series:
