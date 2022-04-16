@@ -28,7 +28,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
 	* Analysis
 		
-		<img src="_docs/regr_analysis.PNG" width="400" height="150">
+		<img src="_docs/regr_analysis.PNG" width="500" height="150">
 	
 	* Model
 		
@@ -54,7 +54,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 - <ins>**[Recommendation Systems](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_recommendation.ipynb)**</ins>
 	* User x Product Ratings
 
-		<img src="_docs/ml_recomm.PNG" width="400" height="200">
+		<img src="_docs/ml_recomm.PNG" width="600" height="200">
 
 <br>
 
