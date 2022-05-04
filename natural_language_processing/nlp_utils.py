@@ -37,7 +37,7 @@ import shap
 import gensim
 import gensim.downloader as gensim_api
 
-## for bert
+## for bert/bart
 import transformers
 
 ## for summarization
