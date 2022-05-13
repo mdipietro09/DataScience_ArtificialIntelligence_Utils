@@ -125,7 +125,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 - <ins>**[Image classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_img_classification.ipynb)**</ins>
 	* Analysis
 
-		<img src="_docs/cv_colors.gif" width="600" height="250">
+		<img src="_docs/cv_colors.gif" width="550" height="250">
 
 	* Model
 
@@ -134,7 +134,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 <br>
 
 - <ins>**[Object detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
-	* Preprocessing
+	* Segmentation
 
 		<img src="_docs/cv_preprocess.PNG" width="600" height="100">
 
