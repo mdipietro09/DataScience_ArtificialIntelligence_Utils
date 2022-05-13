@@ -125,11 +125,11 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 - <ins>**[Image classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_img_classification.ipynb)**</ins>
 	* Analysis
 
-		<img src="_docs/cv_colors.gif" width="450" height="250">
+		<img src="_docs/cv_colors.gif" width="400" height="250">
 
 	* Model
 
-		<img src="_docs/cv_classif.PNG" width="600" height="250">
+		<img src="_docs/cv_classif.png" width="600" height="250">
 
 <br>
 
