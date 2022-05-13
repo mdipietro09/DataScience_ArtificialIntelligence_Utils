@@ -122,7 +122,18 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 ------
 
 ### 4. Computer Vision:
-- <ins>**[Image detection and classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
+- <ins>**[Image classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_img_classification.ipynb)**</ins>
+	* Analysis
+
+		<img src="_docs/cv_colors.gif" width="450" height="250">
+
+	* Model
+
+		<img src="_docs/cv_classif.PNG" width="600" height="250">
+
+<br>
+
+- <ins>**[Object detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
 	* Preprocessing
 
 		<img src="_docs/cv_preprocess.PNG" width="600" height="100">
