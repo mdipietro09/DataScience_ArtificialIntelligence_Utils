@@ -8,7 +8,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 ### 1. Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
 <br>
-	<p style="margin-left:200px"><img src="_docs/cv_colors.gif" width="550" height="250"></p>
+	<p align="center"><img src="_docs/cv_colors.gif" width="550" height="250"></p>
 <br>
 
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
@@ -36,7 +36,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 - <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
 <br>
-	<p align="center"><img src="_docs/ts_param.PNG" width="300" height="150"></p>
+	<p align="center"><img src="_docs/ts_param.PNG" width="400" height="150"></p>
 <br>
 
 - <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
