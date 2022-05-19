@@ -7,6 +7,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 
 ### 1. Classical Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
+<br>
 	<img src="_docs/classif_analysis.PNG" width="600" height="200">
 
 <br>
