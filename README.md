@@ -8,7 +8,7 @@ Most of the projects are documented on [*Medium*](https://mdipietro09.medium.com
 ### 1. Machine Learning:
 - <ins>**[Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_classification.ipynb)**</ins>
 <br>
-	<img src="_docs/cv_colors.gif" width="550" height="250" style="vertical-align:middle;margin:0px 50px">>
+	<img src="_docs/cv_colors.gif" width="550" height="250" align="left">
 <br>
 
 - <ins>**[Regression](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_regression.ipynb)**</ins>
