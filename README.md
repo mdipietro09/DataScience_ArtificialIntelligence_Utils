@@ -41,7 +41,7 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 
 - <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
 <br>
-	<p align="center"><img src="_docs/ts_clustering.png" width="400" height="150"></p>
+	<p align="center"><img src="_docs/ts_clustering.PNG" width="400" height="150"></p>
 <br>
 
 ------
