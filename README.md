@@ -70,6 +70,11 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/cv_detection.gif" width="400" height="250"></p>
 <br>
 
+- <ins>**[OCR Parsing](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_ocr_parsing.ipynb)**</ins>
+<br>
+	<p align="center"><img src="_docs/cv_ocr.PNG" width="400" height="250"></p>
+<br>
+
 ------
 
 ### 5. Reinforcement Learning:
