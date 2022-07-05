@@ -72,7 +72,7 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 
 - <ins>**[OCR Parsing](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_ocr_parsing.ipynb)**</ins>
 <br>
-	<p align="center"><img src="_docs/cv_ocr.png" width="400" height="450"></p>
+	<p align="center"><img src="_docs/cv_ocr.png" width="500" height="450"></p>
 <br>
 
 ------
