@@ -59,7 +59,7 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 
 - <ins>**[Knowledge Graph](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_knowledge_graph.ipynb)**</ins>
 <br>
-	<p align="center"><img src="_docs/nlp_graph.png" width="450" height="200"></p>
+	<p align="center"><img src="_docs/nlp_graph.png" width="500" height="300"></p>
 <br>
 
 ------
