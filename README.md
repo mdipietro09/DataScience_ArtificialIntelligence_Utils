@@ -57,6 +57,11 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/nlp_summary.gif" width="450" height="200"></p>
 <br>
 
+- <ins>**[Knowledge Graph](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_knowledge_graph.ipynb)**</ins>
+<br>
+	<p align="center"><img src="_docs/nlp_graph.PNG" width="450" height="200"></p>
+<br>
+
 ------
 
 ### 4. Computer Vision:
