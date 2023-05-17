@@ -26,6 +26,11 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/ml_recomm.PNG" width="600" height="200"></p>
 <br>
 
+- <ins>**[Route Optimization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_route_optimization.ipynb)**</ins>
+<br>
+	<p align="center"><img src="_docs/ml_route.gif" width="400" height="250"></p>
+<br>
+
 ------
 
 ### 2. Time Series:
