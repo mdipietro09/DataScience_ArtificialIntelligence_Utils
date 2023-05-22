@@ -28,7 +28,7 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 
 - <ins>**[Route Optimization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_route_optimization.ipynb)**</ins>
 <br>
-	<p align="center"><img src="_docs/ml_route.gif" width="400" height="250"></p>
+	<p align="center"><img src="_docs/ml_route.gif" width="550" height="300"></p>
 <br>
 
 ------
