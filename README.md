@@ -75,7 +75,7 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/cv_classif.png" width="600" height="250"></p>
 <br>
 
-- <ins>**[Object Detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
+- <ins>**[Object Detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_obj_detection.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/cv_detection.gif" width="400" height="250"></p>
 <br>
