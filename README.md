@@ -26,6 +26,11 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/ml_recomm.PNG" width="600" height="200"></p>
 <br>
 
+- <ins>**[Route Optimization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/machine_learning/example_route_optimization.ipynb)**</ins>
+<br>
+	<p align="center"><img src="_docs/ml_route.gif" width="550" height="300"></p>
+<br>
+
 ------
 
 ### 2. Time Series:
@@ -34,12 +39,12 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 	<p align="center"><img src="_docs/ts_model.PNG" width="400" height="150"></p>
 <br>
 
-- <ins>**[Parametric fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
+- <ins>**[Parametric Fit](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_parametric_fit.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/ts_param.PNG" width="400" height="150"></p>
 <br>
 
-- <ins>**[Multiple series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
+- <ins>**[Multi Series](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/time_series/example_clustering.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/ts_clustering.PNG" width="400" height="150"></p>
 <br>
@@ -47,25 +52,30 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 ------
 
 ### 3. Natural Language Processing:
-- <ins>**[Text classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_classification.ipynb)**</ins>
+- <ins>**[Text Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_classification.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/nlp_analysis.gif" width="450" height="250"></p>
 <br>
 
-- <ins>**[Text summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
+- <ins>**[Text Summarization](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_text_summarization.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/nlp_summary.gif" width="450" height="200"></p>
+<br>
+
+- <ins>**[Knowledge Graph](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/natural_language_processing/example_knowledge_graph.ipynb)**</ins>
+<br>
+	<p align="center"><img src="_docs/nlp_graph.png" width="500" height="300"></p>
 <br>
 
 ------
 
 ### 4. Computer Vision:
-- <ins>**[Image classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_img_classification.ipynb)**</ins>
+- <ins>**[Image Classification](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_img_classification.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/cv_classif.png" width="600" height="250"></p>
 <br>
 
-- <ins>**[Object detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_detection_and_classification.ipynb)**</ins>
+- <ins>**[Object Detection](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/computer_vision/example_obj_detection.ipynb)**</ins>
 <br>
 	<p align="center"><img src="_docs/cv_detection.gif" width="400" height="250"></p>
 <br>
@@ -78,5 +88,5 @@ Most of the projects are documented on [*Medium*](https://maurodp.medium.com/).
 ------
 
 ### 5. Reinforcement Learning:
-- <ins>**[Artificial Intelligence agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_ai_agent.ipynb)**</ins>
+- <ins>**[Artificial Intelligence Agent](https://github.com/mdipietro09/DataScience_ArtificialIntelligence_Utils/blob/master/reinforcement_learning/example_ai_agent.ipynb)**</ins>
 	* work in progress
